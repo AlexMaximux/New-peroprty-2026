@@ -7,6 +7,7 @@ import { StorageModule } from './storage/storage.module';
 import { AgencyModule } from './agency/agency.module';
 import { AdminModule } from './admin/admin.module';
 import { ListingModule } from './listing/listing.module';
+import { FavouritesModule } from './favourites/favourites.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { ListingModule } from './listing/listing.module';
     AgencyModule,
     AdminModule,
     ListingModule,
+    FavouritesModule,
   ],
   controllers: [AppController],
   providers: [],

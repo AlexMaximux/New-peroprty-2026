@@ -57,6 +57,13 @@ export function NavBar() {
             </Link>
           )}
 
+          {/* Favourites — shown to all authenticated users */}
+          {user && (
+            <Link href="/favourites" className={`nav-link ${pathname.startsWith('/favourites') ? 'active' : ''}`}>
+              Favourites
+            </Link>
+          )}
+
           {user && user.role === 'ADMIN' && (
             <>
               <Link href="/admin/agencies" className={`nav-link ${pathname.startsWith('/admin') ? 'active' : ''}`}>
