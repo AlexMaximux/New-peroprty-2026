@@ -12,6 +12,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@hookform/resolvers": "^5.4.0",
     "@propvest/api-client": "workspace:*",
     "@propvest/shared": "workspace:*",
     "@tailwindcss/postcss": "^4.3.1",
@@ -20,6 +21,7 @@
     "postcss": "^8.5.15",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-hook-form": "^7.80.0",
     "tailwindcss": "^4.3.1"
   },
   "devDependencies": {
