@@ -50,6 +50,13 @@ export function NavBar() {
             Home
           </Link>
 
+          {/* Browse — shown to all authenticated users */}
+          {user && (
+            <Link href="/browse" className={`nav-link ${pathname.startsWith('/browse') ? 'active' : ''}`}>
+              Browse
+            </Link>
+          )}
+
           {user && user.role === 'ADMIN' && (
             <>
               <Link href="/admin/agencies" className={`nav-link ${pathname.startsWith('/admin') ? 'active' : ''}`}>
