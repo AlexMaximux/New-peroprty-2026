@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   createListingSchema,
   updateListingSchema,
+  listingSearchSchema,
   getStrategyDataSchema,
 } from '@propvest/shared';
 
@@ -260,6 +261,102 @@ export class ListingService {
       },
       orderBy: { updatedAt: 'desc' },
     });
+  }
+
+  /**
+   * Search published listings with filters.
+   * All filters operate on indexed columns — no JSONB filtering.
+   * Returns paginated results visible to authenticated users.
+   */
+  async searchPublic(query: unknown) {
+    const parsed = listingSearchSchema.parse(query);
+
+    // Build where clause dynamically — use `any` casts for flexible filter construction
+    const where: any = {
+      status: { not: 'ARCHIVED' },
+    };
+
+    if (parsed.category) {
+      where.category = parsed.category;
+    }
+    if (parsed.strategy) {
+      where.strategy = parsed.strategy;
+    }
+    if (parsed.propertyType) {
+      where.propertyType = parsed.propertyType;
+    }
+    if (parsed.postcode) {
+      where.postcode = { contains: parsed.postcode, mode: 'insensitive' };
+    }
+    if (parsed.region) {
+      where.region = { contains: parsed.region, mode: 'insensitive' };
+    }
+
+    // Price range (askingPricePence is nullable Int, filter via object syntax)
+    if (parsed.priceMin !== undefined || parsed.priceMax !== undefined) {
+      where.askingPricePence = {};
+      if (parsed.priceMin !== undefined) where.askingPricePence.gte = parsed.priceMin;
+      if (parsed.priceMax !== undefined) where.askingPricePence.lte = parsed.priceMax;
+    }
+
+    // ROI band (estimatedRoi is Decimal, filter as number)
+    if (parsed.roiMin !== undefined || parsed.roiMax !== undefined) {
+      where.estimatedRoi = {};
+      if (parsed.roiMin !== undefined) where.estimatedRoi.gte = parsed.roiMin;
+      if (parsed.roiMax !== undefined) where.estimatedRoi.lte = parsed.roiMax;
+    }
+
+    // Refurb required
+    if (parsed.needsRefurb !== undefined) {
+      where.needsRefurb = parsed.needsRefurb;
+    }
+
+    // Status exclusions — start with ARCHIVED already excluded above
+    const excludeStatuses = ['DRAFT'];
+    if (parsed.excludeSold) excludeStatuses.push('SOLD');
+    if (parsed.excludeReserved) excludeStatuses.push('RESERVED');
+    // Merge with existing status filter (the `not: 'ARCHIVED'` above)
+    where.status = {
+      not: 'ARCHIVED',
+      notIn: excludeStatuses,
+    };
+
+    // Pagination
+    const skip = (parsed.page - 1) * parsed.limit;
+
+    const [data, total] = await Promise.all([
+      this.prisma.listing.findMany({
+        where,
+        skip,
+        take: parsed.limit,
+        orderBy: { [parsed.sortBy]: parsed.sortOrder },
+        include: {
+          media: { orderBy: { order: 'asc' } },
+          hmoRooms: true,
+          portfolioAssets: { orderBy: { order: 'asc' } },
+          agencyProfile: {
+            select: {
+              companyName: true,
+              contactName: true,
+              phone: true,
+              user: { select: { displayName: true } },
+            },
+          },
+          _count: { select: { favourites: true } },
+        },
+      }),
+      this.prisma.listing.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: {
+        total,
+        page: parsed.page,
+        limit: parsed.limit,
+        totalPages: Math.ceil(total / parsed.limit),
+      },
+    };
   }
 
   /**

@@ -348,3 +348,49 @@ export const updateListingSchema = z.object({
   strategySpecificData: z.record(z.unknown()).optional(),
 });
 export type UpdateListingDto = z.infer<typeof updateListingSchema>;
+
+// ── Search / Browse filters ─────────────────────────────────────────────────────
+
+export const listingSearchSchema = z.object({
+  // Category & strategy filters
+  category: listingCategorySchema.optional(),
+  strategy: listingStrategySchema.optional(),
+  propertyType: propertyTypeSchema.optional(),
+
+  // Location
+  postcode: z.string().max(20).optional(),
+  region: z.string().max(100).optional(),
+
+  // Price range (in pence)
+  priceMin: z.coerce.number().int().nonnegative().optional(),
+  priceMax: z.coerce.number().int().nonnegative().optional(),
+
+  // ROI band (percentage, e.g. 0–100)
+  roiMin: z.coerce.number().min(0).max(100).optional(),
+  roiMax: z.coerce.number().min(0).max(100).optional(),
+
+  // Status flags
+  needsRefurb: z.coerce.boolean().optional(),
+  excludeSold: z.coerce.boolean().optional().default(true),
+  excludeReserved: z.coerce.boolean().optional().default(true),
+
+  // Pagination
+  page: z.coerce.number().int().min(1).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(20),
+
+  // Sort
+  sortBy: z.enum(['createdAt', 'updatedAt', 'askingPricePence', 'estimatedRoi']).optional().default('createdAt'),
+  sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
+});
+export type ListingSearchDto = z.infer<typeof listingSearchSchema>;
+
+export const paginatedListingsSchema = z.object({
+  data: z.array(z.any()),
+  meta: z.object({
+    total: z.number().int().nonnegative(),
+    page: z.number().int().min(1),
+    limit: z.number().int().min(1),
+    totalPages: z.number().int().nonnegative(),
+  }),
+});
+export type PaginatedListingsDto = z.infer<typeof paginatedListingsSchema>;

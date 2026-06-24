@@ -8,6 +8,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Query,
 } from '@nestjs/common';
 import { ListingService } from './listing.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -18,6 +19,15 @@ import { CurrentUser, AuthenticatedUser } from '../common/decorators/current-use
 @UseGuards(JwtAuthGuard)
 export class ListingController {
   constructor(private readonly listingService: ListingService) {}
+
+  /**
+   * Search published listings with filters (all authenticated users).
+   * Must be placed before :id route to avoid "search" matching as :id.
+   */
+  @Get('search')
+  async search(@Query() query: unknown) {
+    return this.listingService.searchPublic(query);
+  }
 
   /**
    * Create a new listing. Requires an APPROVED agency profile.

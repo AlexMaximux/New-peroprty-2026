@@ -349,4 +349,160 @@ describe('ListingService', () => {
       ).rejects.toThrow(BadRequestException);
     });
   });
+
+  // ── Search public listings ──
+
+  describe('searchPublic', () => {
+    const createPublishedListing = async (agencyUser: any, overrides: Record<string, unknown> = {}) => {
+      const body = createValidBody(overrides);
+      const listing = await listingService.create(agencyUser.id, body);
+      const published = await listingService.publish(agencyUser.id, listing.id);
+      return published;
+    };
+
+    it('should return only published (non-archived) listings by default', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+      const published = await createPublishedListing(user);
+      cleanupListingIds.push(published.id);
+
+      // Also create a draft (should not appear)
+      const draft = await listingService.create(user.id, createValidBody({
+        base: { title: 'Draft Listing', addressLine1: '2 Draft St', city: 'London', postcode: 'SW1 1AA' },
+      }));
+      cleanupListingIds.push(draft.id);
+
+      const result = await listingService.searchPublic({});
+      expect(result.data.length).toBeGreaterThanOrEqual(1);
+      expect(result.data.every((l: any) => l.status === 'PUBLISHED')).toBe(true);
+      expect(result.meta.total).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should paginate results', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+      const ids: string[] = [];
+
+      // Create 3 published listings
+      for (let i = 0; i < 3; i++) {
+        const l = await createPublishedListing(user, {
+          base: { title: `Paginated Listing ${i}`, addressLine1: `${i} Page St`, city: 'London', postcode: 'SW1 1AA' },
+        });
+        ids.push(l.id);
+      }
+      ids.forEach((id) => cleanupListingIds.push(id));
+
+      const page1 = await listingService.searchPublic({ page: 1, limit: 2 });
+      expect(page1.data.length).toBe(2);
+      expect(page1.meta.page).toBe(1);
+      expect(page1.meta.totalPages).toBeGreaterThanOrEqual(2);
+
+      const page2 = await listingService.searchPublic({ page: 2, limit: 2 });
+      expect(page2.data.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should filter by category', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+
+      const r2r = await createPublishedListing(user);
+      cleanupListingIds.push(r2r.id);
+
+      // Create a Sell Property listing
+      const sell = await listingService.create(user.id, {
+        category: 'SELL_PROPERTY',
+        strategy: 'SINGLE_LET',
+        base: { title: 'Sell Property', addressLine1: '3 Market St', city: 'London', postcode: 'EC1 1AA' },
+      });
+      const publishedSell = await listingService.publish(user.id, sell.id);
+      cleanupListingIds.push(publishedSell.id);
+
+      const result = await listingService.searchPublic({ category: 'SELL_PROPERTY' });
+      expect(result.data.every((l: any) => l.category === 'SELL_PROPERTY')).toBe(true);
+    });
+
+    it('should filter by price range', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+
+      const listing = await listingService.create(user.id, {
+        category: 'SELL_PROPERTY',
+        strategy: 'SINGLE_LET',
+        base: {
+          title: 'Priced Property',
+          addressLine1: '10 Price St',
+          city: 'London',
+          postcode: 'EC2 2BB',
+          bedrooms: 3,
+        },
+        strategySpecificData: {
+          askingPricePence: 20000000,
+        },
+      });
+      await listingService.publish(user.id, listing.id);
+      // Manually set askingPricePence on the promoted column
+      await prisma.listing.update({
+        where: { id: listing.id },
+        data: { askingPricePence: 20000000 },
+      });
+      cleanupListingIds.push(listing.id);
+
+      const result = await listingService.searchPublic({ priceMin: 15000000, priceMax: 25000000 });
+      expect(result.data.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should apply Exclude Sold', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+
+      const pub = await createPublishedListing(user);
+      cleanupListingIds.push(pub.id);
+
+      // Create a SOLD listing
+      const sold = await listingService.create(user.id, createValidBody({
+        base: { title: 'Sold Property', addressLine1: '4 Sold St', city: 'London', postcode: 'SW2 2AA' },
+      }));
+      await listingService.publish(user.id, sold.id);
+      await prisma.listing.update({ where: { id: sold.id }, data: { status: 'SOLD' } });
+      cleanupListingIds.push(sold.id);
+
+      // With excludeSold=true (default), sold should not appear
+      const result = await listingService.searchPublic({ excludeSold: true });
+      expect(result.data.every((l: any) => l.status !== 'SOLD')).toBe(true);
+
+      // With excludeSold=false, sold should appear
+      const resultAll = await listingService.searchPublic({ excludeSold: false });
+      expect(resultAll.data.some((l: any) => l.status === 'SOLD')).toBe(true);
+    });
+
+    it('should filter by ROI band boundaries', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+
+      const listing = await listingService.create(user.id, {
+        category: 'SELL_PROPERTY',
+        strategy: 'SINGLE_LET',
+        base: {
+          title: 'ROI Property',
+          addressLine1: '5 Roi St',
+          city: 'Manchester',
+          postcode: 'M1 1BB',
+        },
+      });
+      await listingService.publish(user.id, listing.id);
+      await prisma.listing.update({
+        where: { id: listing.id },
+        data: { estimatedRoi: 12.5 },
+      });
+      cleanupListingIds.push(listing.id);
+
+      // ROI band 10-15 should include this
+      const result = await listingService.searchPublic({ roiMin: 10, roiMax: 15 });
+      expect(result.data.length).toBeGreaterThanOrEqual(1);
+
+      // ROI band 0-5 should exclude this
+      const resultExcluded = await listingService.searchPublic({ roiMin: 0, roiMax: 5 });
+      expect(resultExcluded.data.every((l: any) => Number(l.estimatedRoi ?? 0) <= 5)).toBe(true);
+    });
+  });
 });

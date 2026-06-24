@@ -11,7 +11,6 @@ describe('ApprovedAgencyGuard', () => {
   let module: TestingModule;
   let guard: ApprovedAgencyGuard;
   let prisma: PrismaService;
-  let reflector: Reflector;
 
   const cleanupUserIds: string[] = [];
 
@@ -23,7 +22,6 @@ describe('ApprovedAgencyGuard', () => {
 
     guard = module.get<ApprovedAgencyGuard>(ApprovedAgencyGuard);
     prisma = module.get<PrismaService>(PrismaService);
-    reflector = module.get<Reflector>(Reflector);
   });
 
   afterAll(async () => {
@@ -67,27 +65,9 @@ describe('ApprovedAgencyGuard', () => {
     });
   };
 
-  /** Build a mock ExecutionContext that mimics a controller method decorated with @RequireApprovedAgency() */
-  const mockContext = (user: { sub: string; role: string } | null): ExecutionContext => {
-    // We need to apply the decorator to simulate it being present
-    // The decorator sets metadata that the guard reads via Reflector
-    return {
-      getHandler: () => mockContext.target,
-      getClass: () => mockContext.target,
-      switchToHttp: () => ({
-        getRequest: () => ({
-          user,
-        }),
-      }),
-    } as unknown as ExecutionContext;
-  };
-
   // The target for metadata reflection — apply the decorator to it
   @RequireApprovedAgency()
   class GuardedHandler {}
-
-  const guardedHandler = new GuardedHandler();
-  (mockContext as any).target = GuardedHandler;
 
   it('should allow APPROVED agency through', async () => {
     const user = await createUser();
