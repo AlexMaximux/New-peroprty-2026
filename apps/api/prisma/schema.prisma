@@ -1,0 +1,410 @@
+// PropVest — Phase 1 Prisma schema
+// PostgreSQL. Money stored as integer pence (*Pence).
+// Strategy-specific data stored as JSONB, validated by Zod in shared package.
+// V1: only APPROVED agencies may publish listings (no individual-seller path).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ──────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  AGENCY
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum AgencyVerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ListingCategory {
+  RENT_TO_RENT
+  LEASE_OPTION
+  SELL_PROPERTY
+  PORTFOLIO
+  COMMERCIAL
+  DEVELOPMENT_OPPORTUNITY
+  REFURB_OPPORTUNITY
+}
+
+enum ListingStrategy {
+  HMO
+  SA
+  SINGLE_LET
+  HIGH_ROI
+  CASH_PURCHASE
+  COMMERCIAL
+  MIXED_USE
+  HOTEL
+  SHOP
+  FLAT_CONVERSION
+  ADD_BEDROOM
+  EXTENSION
+  LOFT_CONVERSION
+  BMV
+}
+
+enum ListingStatus {
+  DRAFT
+  PUBLISHED
+  RESERVED
+  SOLD
+  ARCHIVED
+}
+
+enum PropertyType {
+  TERRACED
+  FLAT
+  DETACHED
+  SEMI_DETACHED
+  OTHER
+}
+
+enum ListingMediaKind {
+  PHOTO
+  VIDEO
+}
+
+enum FurnishedStatus {
+  UNFURNISHED
+  FURNISHED
+  SEMI_FURNISHED
+}
+
+enum RefurbQuoteType {
+  QUOTED
+  ESTIMATED
+  NOT_QUOTED
+}
+
+enum HmoRoomType {
+  DOUBLE_EN_SUITE
+  DOUBLE_SHARED
+  SINGLE_EN_SUITE
+  SINGLE_SHARED
+  OTHER
+}
+
+enum ReferenceRequirement {
+  EASY
+  FULL
+  LTD
+  OTHER
+}
+
+enum OwnershipType {
+  FREEHOLD
+  LEASEHOLD
+}
+
+enum Nation {
+  ENGLAND
+  WALES
+  SCOTLAND
+  MANUAL
+}
+
+enum RegionGroup {
+  NORTH
+  SOUTH
+}
+
+// ── Auth ───────────────────────────────────────────────────────────────────
+
+model User {
+  id              String     @id @default(uuid())
+  email           String     @unique
+  passwordHash    String     @map("password_hash")
+  role            UserRole   @default(USER)
+  status          UserStatus @default(ACTIVE)
+  displayName     String     @map("display_name")
+  phone           String?
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  agencyProfile   AgencyProfile?
+  favourites      Favourite[]
+  conversations   Conversation[]  @relation("ConversationBuyer")
+  sentMessages    Message[]       @relation("MessageSender")
+  refreshTokens   RefreshToken[]
+  adminReviews    AgencyProfile[] @relation("AdminReviewer")
+  auditLogs       AdminAuditLog[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id            String    @id @default(uuid())
+  hashedToken   String    @unique @map("hashed_token")
+  userId        String    @map("user_id")
+  expiresAt     DateTime  @map("expires_at")
+  revokedAt     DateTime? @map("revoked_at")
+  parentTokenId String?   @unique @map("parent_token_id") // links to old token in rotation chain
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// ── Agency ─────────────────────────────────────────────────────────────────
+
+model AgencyProfile {
+  id                 String                     @id @default(uuid())
+  userId             String                     @unique @map("user_id")
+  companyName        String                     @map("company_name")
+  companyNumber      String?                    @map("company_number")
+  address            String
+  contactName        String                     @map("contact_name")
+  phone              String
+  website            String?
+  verificationStatus AgencyVerificationStatus   @default(PENDING) @map("verification_status")
+  rejectionReason    String?                    @map("rejection_reason")
+  reviewedByAdminId  String?                    @map("reviewed_by_admin_id")
+  reviewedAt         DateTime?                  @map("reviewed_at")
+  createdAt          DateTime                   @default(now()) @map("created_at")
+  updatedAt          DateTime                   @updatedAt @map("updated_at")
+
+  user               User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewedByAdmin    User?      @relation("AdminReviewer", fields: [reviewedByAdminId], references: [id])
+  documents          AgencyDocument[]
+  listings           Listing[]
+
+  @@map("agency_profiles")
+}
+
+model AgencyDocument {
+  id              String   @id @default(uuid())
+  agencyProfileId String   @map("agency_profile_id")
+  type            String   // e.g. "COMPANY_REGISTRATION", "ID", "PROOF_OF_ADDRESS"
+  fileKey         String   @map("file_key")
+  originalName    String   @map("original_name")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  agencyProfile   AgencyProfile @relation(fields: [agencyProfileId], references: [id], onDelete: Cascade)
+
+  @@index([agencyProfileId])
+  @@map("agency_documents")
+}
+
+// ── Listing ────────────────────────────────────────────────────────────────
+
+model Listing {
+  id              String           @id @default(uuid())
+  agencyProfileId String           @map("agency_profile_id")
+
+  // Category + strategy drive the form sections
+  category        ListingCategory
+  strategy        ListingStrategy
+
+  // Status lifecycle
+  status          ListingStatus    @default(DRAFT)
+
+  // ── Base property info (promoted for filtering) ──
+  title           String
+  description     String?
+  propertyType    PropertyType?    @map("property_type")
+  propertyTypeOther String?        @map("property_type_other") // free-text when OTHER
+  internalRef     String?          @map("internal_ref")
+
+  // Address
+  addressLine1    String           @map("address_line_1")
+  addressLine2    String?          @map("address_line_2")
+  city            String
+  postcode        String
+  buildingNumber  String?          @map("building_number")
+  region          String?
+  nation          Nation?
+  regionGroup     RegionGroup?     @map("region_group")
+  latitude        Float?
+  longitude       Float?
+
+  // General details
+  bedrooms        Int?
+  bathrooms       Int?
+  floorArea       Int?             @map("floor_area") // in sq ft
+  hasLivingRoom   Boolean?         @map("has_living_room")
+  hasGarden       Boolean?         @map("has_garden")
+  gardenNotes     String?          @map("garden_notes")
+  parking         String?          // "Yes" / "No" / "2 spaces" etc.
+  furnishedStatus FurnishedStatus? @map("furnished_status")
+  furnishingQuality String?        @map("furnishing_quality") // High/Good/Medium/Low/Other+explain
+  furnishingNotes String?          @map("furnishing_notes")
+
+  // Status & readiness
+  isVacant        Boolean?         @map("is_vacant")
+  isTenanted      Boolean?         @map("is_tenanted")
+  isLicensed      Boolean?         @map("is_licensed")
+  needsRefurb     Boolean?         @map("needs_refurb")
+  refurbQuoteType RefurbQuoteType? @map("refurb_quote_type")
+  refurbCostPence Int?             @map("refurb_cost_pence")
+
+  // ── Pricing ──
+  askingPricePence    Int?         @map("asking_price_pence")
+  marketValuePence    Int?         @map("market_value_pence")
+  estimatedValuePence Int?         @map("estimated_value_pence")
+  estimatedRoi        Decimal?     @map("estimated_roi") // percentage, e.g. 12.5
+
+  // ── Strategy-specific data (validated by Zod in shared package) ──
+  strategySpecificData  Json?      @map("strategy_specific_data")
+
+  // Timestamps
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+  publishedAt        DateTime?      @map("published_at")
+  archivedAt         DateTime?      @map("archived_at")
+
+  // Relations
+  agencyProfile      AgencyProfile  @relation(fields: [agencyProfileId], references: [id])
+  media              ListingMedia[]
+  hmoRooms           HmoRoom[]
+  portfolioAssets    PortfolioAsset[]
+  favourites         Favourite[]
+  conversations      Conversation[]
+
+  // Phase 3/4 filter indexes
+  @@index([category])
+  @@index([strategy])
+  @@index([status])
+  @@index([propertyType])
+  @@index([needsRefurb])
+  @@index([postcode])
+  @@index([region])
+  @@index([askingPricePence])
+  @@index([estimatedRoi])
+  @@index([agencyProfileId])
+  @@map("listings")
+}
+
+model ListingMedia {
+  id           String           @id @default(uuid())
+  listingId    String           @map("listing_id")
+  kind         ListingMediaKind
+  fileKey      String           @map("file_key")
+  originalName String           @map("original_name")
+  order        Int              @default(0)
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  listing      Listing          @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@map("listing_media")
+}
+
+// ── Repeatable child groups ────────────────────────────────────────────────
+
+model HmoRoom {
+  id               String      @id @default(uuid())
+  listingId        String      @map("listing_id")
+  name             String
+  roomType         HmoRoomType @map("room_type")
+  monthlyRentPence Int         @map("monthly_rent_pence")
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
+
+  listing          Listing     @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@map("hmo_rooms")
+}
+
+model PortfolioAsset {
+  id        String   @id @default(uuid())
+  listingId String   @map("listing_id")
+  name      String
+  assetType String?  @map("asset_type")
+  valuePence Int?    @map("value_pence")
+  notes     String?
+  order     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@map("portfolio_assets")
+}
+
+// ── User interactions ─────────────────────────────────────────────────────
+
+model Favourite {
+  userId    String   @map("user_id")
+  listingId String   @map("listing_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@id([userId, listingId])
+  @@map("favourites")
+}
+
+model Conversation {
+  id           String    @id @default(uuid())
+  listingId    String    @map("listing_id")
+  buyerUserId  String    @map("buyer_user_id")
+  agencyUserId String    @map("agency_user_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  listing      Listing   @relation(fields: [listingId], references: [id])
+  buyer        User      @relation("ConversationBuyer", fields: [buyerUserId], references: [id])
+  messages     Message[]
+
+  @@unique([listingId, buyerUserId])
+  @@index([buyerUserId])
+  @@index([agencyUserId])
+  @@map("conversations")
+}
+
+model Message {
+  id              String    @id @default(uuid())
+  conversationId  String    @map("conversation_id")
+  senderUserId    String    @map("sender_user_id")
+  body            String
+  createdAt       DateTime  @default(now()) @map("created_at")
+  readAt          DateTime? @map("read_at")
+
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender          User       @relation("MessageSender", fields: [senderUserId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@index([senderUserId])
+  @@map("messages")
+}
+
+// ── Admin ──────────────────────────────────────────────────────────────────
+
+model AdminAuditLog {
+  id          String   @id @default(uuid())
+  adminUserId String   @map("admin_user_id")
+  action      String   // e.g. "APPROVE_AGENCY", "REJECT_AGENCY", "UNPUBLISH_LISTING"
+  targetType  String   @map("target_type")
+  targetId    String   @map("target_id")
+  meta        Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  admin       User     @relation(fields: [adminUserId], references: [id])
+
+  @@index([adminUserId])
+  @@index([targetType, targetId])
+  @@map("admin_audit_logs")
+}

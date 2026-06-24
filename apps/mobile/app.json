@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "PropVest",
+    "slug": "propvest",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "scheme": "propvest",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.propvest.mobile"
+    },
+    "android": {
+      "package": "com.propvest.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ]
+  }
+}

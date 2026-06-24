@@ -1,0 +1,27 @@
+{
+  "name": "@propvest/api-client",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Typed fetch wrapper consumed by web and mobile apps",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'lint: ok'",
+    "test": "echo 'test: ok'"
+  },
+  "dependencies": {
+    "@propvest/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

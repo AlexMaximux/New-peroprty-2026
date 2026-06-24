@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+.next/
+out/
+build/
+.turbo/
+*.tsbuildinfo
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Claude Code — local only
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Prisma
+apps/api/prisma/*.db
+
+# Expo
+.expo/
+*.orig.*
+
+# Logs / OS
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+coverage/
+playwright-report/
+test-results/
+
+# Uploads (local MinIO data)
+.minio-data/

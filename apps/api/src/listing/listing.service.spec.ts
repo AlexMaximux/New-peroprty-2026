@@ -1,0 +1,352 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigModule } from '@nestjs/config';
+import { ListingService } from './listing.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import * as argon2 from 'argon2';
+
+describe('ListingService', () => {
+  let module: TestingModule;
+  let listingService: ListingService;
+  let prisma: PrismaService;
+
+  const cleanupUserIds: string[] = [];
+  const cleanupListingIds: string[] = [];
+
+  beforeAll(async () => {
+    module = await Test.createTestingModule({
+      imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' })],
+      providers: [ListingService, PrismaService],
+    }).compile();
+
+    listingService = module.get<ListingService>(ListingService);
+    prisma = module.get<PrismaService>(PrismaService);
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  afterEach(async () => {
+    for (const lid of cleanupListingIds) {
+      // Cascade delete listing media, rooms, assets first
+      await prisma.listingMedia.deleteMany({ where: { listingId: lid } }).catch(() => {});
+      await prisma.hmoRoom.deleteMany({ where: { listingId: lid } }).catch(() => {});
+      await prisma.portfolioAsset.deleteMany({ where: { listingId: lid } }).catch(() => {});
+      await prisma.listing.delete({ where: { id: lid } }).catch(() => {});
+    }
+    cleanupListingIds.length = 0;
+
+    for (const uid of cleanupUserIds) {
+      await prisma.agencyDocument.deleteMany({ where: { agencyProfile: { userId: uid } } }).catch(() => {});
+      await prisma.agencyProfile.deleteMany({ where: { userId: uid } }).catch(() => {});
+      await prisma.user.delete({ where: { id: uid } }).catch(() => {});
+    }
+    cleanupUserIds.length = 0;
+  });
+
+  const createUser = async (role = 'AGENCY') => {
+    const hash = await argon2.hash('Passw0rd!');
+    const user = await prisma.user.create({
+      data: {
+        email: `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@propvest.test`,
+        passwordHash: hash,
+        role: role as any,
+        displayName: 'Test User',
+      },
+    });
+    cleanupUserIds.push(user.id);
+    return user;
+  };
+
+  const createAgencyProfile = async (userId: string, status = 'APPROVED') => {
+    return prisma.agencyProfile.create({
+      data: {
+        userId,
+        companyName: 'Test Agency Ltd',
+        companyNumber: '12345678',
+        address: '123 Test Street, London',
+        contactName: 'Test Contact',
+        phone: '020 1234 5678',
+        verificationStatus: status as any,
+      },
+    });
+  };
+
+  const createValidBody = (overrides?: Record<string, unknown>) => ({
+    category: 'RENT_TO_RENT',
+    strategy: 'HMO',
+    status: 'DRAFT',
+    base: {
+      title: 'Test HMO Property',
+      description: 'A test HMO listing',
+      addressLine1: '45 High Street',
+      city: 'Manchester',
+      postcode: 'M1 1AA',
+      bedrooms: 5,
+      bathrooms: 2,
+    },
+    hmoRooms: [
+      { name: 'Room 1', roomType: 'DOUBLE_EN_SUITE', monthlyRentPence: 60000 },
+      { name: 'Room 2', roomType: 'SINGLE_SHARED', monthlyRentPence: 45000 },
+    ],
+    strategySpecificData: {
+      rentTerm: '12 months',
+      rentToLandlordPence: 150000,
+      depositPence: 150000,
+      managementAvailable: true,
+      agencyDetails: 'Test Management Ltd',
+    },
+    ...overrides,
+  });
+
+  // ── Create listing ──
+
+  describe('create', () => {
+    it('should create an HMO listing for an approved agency', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+
+      const listing = await listingService.create(user.id, createValidBody());
+
+      expect(listing.id).toBeDefined();
+      expect(listing.category).toBe('RENT_TO_RENT');
+      expect(listing.strategy).toBe('HMO');
+      expect(listing.status).toBe('DRAFT');
+      expect(listing.title).toBe('Test HMO Property');
+      expect(listing.hmoRooms).toHaveLength(2);
+      expect(listing.hmoRooms[0]!.monthlyRentPence).toBe(60000);
+      expect(listing.strategySpecificData).toBeDefined();
+
+      cleanupListingIds.push(listing.id);
+    });
+
+    it('should create an SA listing with strategy-specific data', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+
+      const listing = await listingService.create(user.id, {
+        category: 'RENT_TO_RENT',
+        strategy: 'SA',
+        status: 'DRAFT',
+        base: {
+          title: 'Test SA Property',
+          addressLine1: '10 King Street',
+          city: 'London',
+          postcode: 'EC2A 4NE',
+        },
+        strategySpecificData: {
+          nightlyRatePence: 15000,
+          occupancyRate: 0.7,
+          rentPence: 200000,
+          maxGuests: 4,
+        },
+      });
+
+      expect(listing.strategy).toBe('SA');
+      expect(listing.strategySpecificData).toBeDefined();
+      expect((listing.strategySpecificData as any).nightlyRatePence).toBe(15000);
+      expect((listing.strategySpecificData as any).occupancyRate).toBe(0.7);
+
+      cleanupListingIds.push(listing.id);
+    });
+
+    it('should create a Sell Property listing', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+
+      const listing = await listingService.create(user.id, {
+        category: 'SELL_PROPERTY',
+        strategy: 'SINGLE_LET',
+        base: {
+          title: 'Test Sell Property',
+          addressLine1: '1 Park Lane',
+          city: 'Birmingham',
+          postcode: 'B1 1AA',
+          bedrooms: 3,
+          bathrooms: 1,
+          propertyType: 'TERRACED',
+          needsRefurb: true,
+          refurbCostPence: 5000000,
+        },
+        strategySpecificData: {
+          ownershipType: 'FREEHOLD',
+          askingPricePence: 25000000,
+          marketValuePence: 27500000,
+          mortgageInterestRate: 0.045,
+          depositPence: 6250000,
+          stampDutyPence: 750000,
+          finderFeePence: 250000,
+          legalFeesPence: 150000,
+        },
+      });
+
+      expect(listing.category).toBe('SELL_PROPERTY');
+      expect(listing.strategy).toBe('SINGLE_LET');
+      expect(listing.needsRefurb).toBe(true);
+
+      cleanupListingIds.push(listing.id);
+    });
+
+    it('should reject creation with invalid strategy data', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+
+      // Pass a string where number is expected (occupancyRate must be 0-1)
+      const badBody = {
+        category: 'RENT_TO_RENT',
+        strategy: 'SA',
+        base: {
+          title: 'Bad Data',
+          addressLine1: '1 High St',
+          city: 'London',
+          postcode: 'SW1 1AA',
+        },
+        strategySpecificData: {
+          nightlyRatePence: 'not-a-number', // invalid type
+          occupancyRate: 0.7,
+          rentPence: 200000,
+        },
+      };
+
+      await expect(listingService.create(user.id, badBody)).rejects.toThrow(BadRequestException);
+    });
+
+    it('should create listing without strategy data (empty object)', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+
+      const listing = await listingService.create(user.id, {
+        category: 'LEASE_OPTION',
+        strategy: 'BMV',
+        base: {
+          title: 'Lease Option BMV',
+          addressLine1: '15 Market Road',
+          city: 'Leeds',
+          postcode: 'LS1 1AA',
+        },
+        strategySpecificData: {
+          pricePence: 15000000,
+        },
+      });
+
+      expect(listing.id).toBeDefined();
+      expect(listing.strategy).toBe('BMV');
+      expect(listing.strategySpecificData).toBeDefined();
+
+      cleanupListingIds.push(listing.id);
+    });
+
+    it('should throw ForbiddenException if user has no agency profile', async () => {
+      const user = await createUser('USER'); // Not an agency user
+
+      await expect(
+        listingService.create(user.id, createValidBody()),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // ── Update listing ──
+
+  describe('update', () => {
+    it('should update own listing', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+      const listing = await listingService.create(user.id, createValidBody());
+      cleanupListingIds.push(listing.id);
+
+      const updated = await listingService.update(user.id, listing.id, {
+        base: { title: 'Updated Title' },
+      });
+
+      expect(updated.title).toBe('Updated Title');
+    });
+
+    it('should reject update from non-owning agency', async () => {
+      const owner = await createUser();
+      await createAgencyProfile(owner.id, 'APPROVED');
+      const listing = await listingService.create(owner.id, createValidBody());
+      cleanupListingIds.push(listing.id);
+
+      const intruder = await createUser();
+      await createAgencyProfile(intruder.id, 'APPROVED');
+
+      await expect(
+        listingService.update(intruder.id, listing.id, { base: { title: 'Hacked' } }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should throw NotFoundException for unknown listing', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+
+      await expect(
+        listingService.update(user.id, '00000000-0000-0000-0000-000000000000', { base: { title: 'Nope' } }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ── Find by ID ──
+
+  describe('findById', () => {
+    it('should return listing with relations', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+      const listing = await listingService.create(user.id, createValidBody());
+      cleanupListingIds.push(listing.id);
+
+      const found = await listingService.findById(listing.id);
+      expect(found.id).toBe(listing.id);
+      expect(found.hmoRooms).toHaveLength(2);
+      expect(found.agencyProfile).toBeDefined();
+    });
+
+    it('should throw NotFoundException for unknown listing', async () => {
+      await expect(
+        listingService.findById('00000000-0000-0000-0000-000000000000'),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ── Find by agency ──
+
+  describe('findByAgency', () => {
+    it('should return own listings', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+      const l1 = await listingService.create(user.id, createValidBody());
+      const l2 = await listingService.create(user.id, createValidBody({ base: { title: 'Second Listing', addressLine1: '2 Main St', city: 'London', postcode: 'SW1 1AA' } }));
+      cleanupListingIds.push(l1.id, l2.id);
+
+      const listings = await listingService.findByAgency(user.id);
+      expect(listings.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  // ── Publish ──
+
+  describe('publish', () => {
+    it('should publish a draft listing', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+      const listing = await listingService.create(user.id, createValidBody());
+      cleanupListingIds.push(listing.id);
+
+      const published = await listingService.publish(user.id, listing.id);
+      expect(published.status).toBe('PUBLISHED');
+      expect(published.publishedAt).toBeDefined();
+    });
+
+    it('should reject publishing a listing that is already published', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+      const listing = await listingService.create(user.id, createValidBody());
+      cleanupListingIds.push(listing.id);
+
+      await listingService.publish(user.id, listing.id);
+      await expect(
+        listingService.publish(user.id, listing.id),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+});

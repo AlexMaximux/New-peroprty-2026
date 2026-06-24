@@ -1,0 +1,17 @@
+{
+  "name": "@propvest/config",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Shared ESLint, Prettier, and TypeScript presets for PropVest",
+  "exports": {
+    "./tsconfig/base": "./tsconfig.base.json",
+    "./tsconfig/nest": "./tsconfig.nest.json",
+    "./tsconfig/nextjs": "./tsconfig.nextjs.json"
+  },
+  "files": [
+    "tsconfig.base.json",
+    "tsconfig.nest.json",
+    "tsconfig.nextjs.json",
+    "src/"
+  ]
+}
