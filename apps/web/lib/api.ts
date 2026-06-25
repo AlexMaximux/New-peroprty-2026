@@ -163,3 +163,98 @@ export async function removeFavourite(listingId: string): Promise<void> {
 export async function getFavourites(): Promise<FavouriteResult[]> {
   return apiFetch<FavouriteResult[]>('/favourites');
 }
+
+// ── Messaging ──
+
+export interface Conversation {
+  id: string;
+  listingId: string;
+  buyerUserId: string;
+  agencyUserId: string;
+  createdAt: string;
+  updatedAt: string;
+  listing: {
+    id: string;
+    title: string;
+    city: string;
+    postcode: string;
+    media: { id: string; fileKey: string; order: number }[];
+  };
+  buyer: { id: string; displayName: string };
+  _count: { messages: number };
+}
+
+export interface MessageResult {
+  id: string;
+  conversationId: string;
+  senderUserId: string;
+  body: string;
+  createdAt: string;
+  readAt: string | null;
+  sender: { id: string; displayName: string };
+}
+
+export interface MessagesResponse {
+  data: MessageResult[];
+  meta: { total: number; page: number; limit: number; totalPages: number };
+}
+
+export async function startConversation(listingId: string): Promise<Conversation> {
+  return apiFetch<Conversation>('/conversations', {
+    method: 'POST',
+    body: { listingId },
+  });
+}
+
+export async function getConversations(): Promise<Conversation[]> {
+  return apiFetch<Conversation[]>('/conversations');
+}
+
+export async function getMessages(conversationId: string, page = 1): Promise<MessagesResponse> {
+  return apiFetch<MessagesResponse>(`/conversations/${conversationId}/messages?page=${page}&limit=50`);
+}
+
+export async function sendMessage(conversationId: string, body: string): Promise<MessageResult> {
+  return apiFetch<MessageResult>(`/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    body: { body },
+  });
+}
+
+export async function markAsRead(conversationId: string): Promise<void> {
+  await apiFetch(`/conversations/${conversationId}/read`, { method: 'POST' });
+}
+
+export async function getUnreadCount(): Promise<{ count: number }> {
+  return apiFetch<{ count: number }>('/conversations/unread-count');
+}
+
+// ── Socket.IO helper ── (importable client-side only)
+import { io, Socket } from 'socket.io-client';
+
+let socketInstance: Socket | null = null;
+
+export function getSocket(): Socket | null {
+  if (typeof window === 'undefined') return null;
+  if (socketInstance?.connected) return socketInstance;
+
+  const token = localStorage.getItem('pv_access_token');
+  if (!token) return null;
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
+  const baseUrl = apiUrl.replace('/api/v1', '');
+
+  socketInstance = io(`${baseUrl}/ws`, {
+    auth: { token },
+    transports: ['websocket', 'polling'],
+  });
+
+  return socketInstance;
+}
+
+export function disconnectSocket() {
+  if (socketInstance) {
+    socketInstance.disconnect();
+    socketInstance = null;
+  }
+}

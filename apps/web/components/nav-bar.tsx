@@ -64,6 +64,13 @@ export function NavBar() {
             </Link>
           )}
 
+          {/* Messages — shown to all authenticated users */}
+          {user && (
+            <Link href="/messages" className={`nav-link ${pathname.startsWith('/messages') ? 'active' : ''}`}>
+              Messages
+            </Link>
+          )}
+
           {user && user.role === 'ADMIN' && (
             <>
               <Link href="/admin/agencies" className={`nav-link ${pathname.startsWith('/admin') ? 'active' : ''}`}>

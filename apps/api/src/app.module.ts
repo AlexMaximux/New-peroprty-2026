@@ -9,6 +9,7 @@ import { AdminModule } from './admin/admin.module';
 import { ListingModule } from './listing/listing.module';
 import { FavouritesModule } from './favourites/favourites.module';
 import { IntegrationsModule } from './integrations/integrations.module';
+import { MessagingModule } from './messaging/messaging.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { IntegrationsModule } from './integrations/integrations.module';
     ListingModule,
     FavouritesModule,
     IntegrationsModule,
+    MessagingModule,
   ],
   controllers: [AppController],
   providers: [],

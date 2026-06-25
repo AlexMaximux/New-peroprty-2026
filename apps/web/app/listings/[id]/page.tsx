@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { getListing, addFavourite, removeFavourite } from '@/lib/api';
+import { getListing, addFavourite, removeFavourite, startConversation } from '@/lib/api';
 import { formatGBP, formatPercent } from '@/lib/utils';
 import { PropertyMap } from '@/components/maps/property-map';
 
@@ -59,6 +59,7 @@ export default function ListingDetailPage() {
   const [error, setError] = useState('');
   const [isFavourite, setIsFavourite] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState(0);
+  const [sendingEnquiry, setSendingEnquiry] = useState(false);
 
   useEffect(() => {
     const id = params?.id as string;
@@ -68,6 +69,19 @@ export default function ListingDetailPage() {
       .catch((e) => setError(e.message ?? 'Failed to load listing'))
       .finally(() => setLoading(false));
   }, [params?.id]);
+
+  const handleEnquiry = async () => {
+    if (!params?.id || sendingEnquiry) return;
+    setSendingEnquiry(true);
+    try {
+      const conv = await startConversation(params.id as string);
+      router.push(`/messages/${conv.id}`);
+    } catch {
+      router.push('/login');
+    } finally {
+      setSendingEnquiry(false);
+    }
+  };
 
   const toggleFav = async () => {
     if (!params?.id) return;
@@ -321,8 +335,12 @@ export default function ListingDetailPage() {
           </div>
 
           {/* Enquire button */}
-          <button className="btn-primary w-full text-sm">
-            Send Enquiry
+          <button
+            onClick={handleEnquiry}
+            disabled={sendingEnquiry}
+            className="btn-primary w-full text-sm"
+          >
+            {sendingEnquiry ? 'Starting conversation...' : 'Send Enquiry'}
           </button>
         </div>
       </div>
