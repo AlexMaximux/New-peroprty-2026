@@ -21,6 +21,7 @@ import {
   calcSaProfit,
 } from '@propvest/shared';
 import { cn, formatGBP, formatPercent } from '@/lib/utils';
+import { AddressAutocomplete, type PlaceResult } from '@/components/maps/address-autocomplete';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -256,6 +257,13 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
     setCurrentStep(1);
   }, [setValue]);
 
+  const onPlaceSelected = useCallback((place: PlaceResult) => {
+    setValue('base.addressLine1', place.addressLine1, { shouldValidate: true });
+    setValue('base.addressLine2', place.addressLine2, { shouldValidate: true });
+    setValue('base.city', place.city, { shouldValidate: true });
+    setValue('base.postcode', place.postcode, { shouldValidate: true });
+  }, [setValue]);
+
   const selectStrategy = useCallback((strat: string) => {
     setSelectedStrategy(strat);
     (setValue as any)('strategy', strat);
@@ -381,11 +389,13 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm text-slate-300 mb-1">Address Line 1 *</label>
-            <input
-              {...register('base.addressLine1')}
+            <AddressAutocomplete
+              onPlaceSelected={onPlaceSelected}
+              placeholder="Search for a UK address"
               className="input-field w-full"
-              placeholder="Building number and street"
             />
+            {/* Hidden input for react-hook-form validation */}
+            <input type="hidden" {...register('base.addressLine1')} />
           </div>
           <div>
             <label className="block text-sm text-slate-300 mb-1">Address Line 2</label>

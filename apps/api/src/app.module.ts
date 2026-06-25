@@ -8,6 +8,7 @@ import { AgencyModule } from './agency/agency.module';
 import { AdminModule } from './admin/admin.module';
 import { ListingModule } from './listing/listing.module';
 import { FavouritesModule } from './favourites/favourites.module';
+import { IntegrationsModule } from './integrations/integrations.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { FavouritesModule } from './favourites/favourites.module';
     AdminModule,
     ListingModule,
     FavouritesModule,
+    IntegrationsModule,
   ],
   controllers: [AppController],
   providers: [],

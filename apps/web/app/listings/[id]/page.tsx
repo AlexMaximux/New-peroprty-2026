@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { getListing, addFavourite, removeFavourite } from '@/lib/api';
 import { formatGBP, formatPercent } from '@/lib/utils';
+import { PropertyMap } from '@/components/maps/property-map';
 
 interface ListingDetail {
   id: string;
@@ -18,6 +19,8 @@ interface ListingDetail {
   postcode: string;
   region: string | null;
   nation: string | null;
+  latitude: number | null;
+  longitude: number | null;
   bedrooms: number | null;
   bathrooms: number | null;
   floorArea: number | null;
@@ -249,19 +252,26 @@ export default function ListingDetailPage() {
             </div>
           )}
 
-          {/* Google Maps placeholder */}
-          <div className="glass-card p-5">
-            <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-400">Location</h2>
-            <div className="flex h-48 items-center justify-center rounded-lg bg-deep-800">
-              <div className="text-center text-slate-500">
-                <svg className="mx-auto h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                <p className="mt-2 text-sm">{listing.postcode}, {listing.city}</p>
-                <p className="mt-1 text-xs text-slate-600">Google Map integration in Phase 5</p>
-              </div>
+          {/* Location map */}
+          <div className="glass-card overflow-hidden p-0">
+            <div className="p-5 pb-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Location</h2>
             </div>
+            {listing.latitude && listing.longitude ? (
+              <PropertyMap
+                latitude={listing.latitude}
+                longitude={listing.longitude}
+                address={`${listing.postcode}, ${listing.city}`}
+                className="h-56"
+              />
+            ) : (
+              <div className="flex h-48 items-center justify-center bg-deep-800">
+                <div className="text-center text-slate-500">
+                  <p className="text-sm">{listing.postcode}, {listing.city}</p>
+                  <p className="mt-1 text-xs text-slate-600">No map coordinates available</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

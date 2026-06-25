@@ -106,6 +106,8 @@ export interface ListingDetail {
   postcode: string;
   region: string | null;
   nation: string | null;
+  latitude: number | null;
+  longitude: number | null;
   bedrooms: number | null;
   bathrooms: number | null;
   floorArea: number | null;

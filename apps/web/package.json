@@ -15,6 +15,7 @@
     "@hookform/resolvers": "^5.4.0",
     "@propvest/api-client": "workspace:*",
     "@propvest/shared": "workspace:*",
+    "@react-google-maps/api": "^2.20.8",
     "@tailwindcss/postcss": "^4.3.1",
     "autoprefixer": "^10.5.0",
     "next": "^15.3.0",
