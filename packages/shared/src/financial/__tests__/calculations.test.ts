@@ -476,3 +476,61 @@ describe('calcRoi', () => {
     expect(() => calcRoi(1000, -1)).toThrow('non-negative');
   });
 });
+
+// ── Pounds↔Pence boundary pipeline ─────────────────────────────────────────────
+// These tests simulate the full form→calculation pipeline that broke in the
+// new-listing form: user enters pounds, form converts to pence, calc functions
+// run, display formats back to pounds via formatGBP-like division.
+// The bug was: form stored pounds in pence-named fields, calc fns treated as pence.
+
+const poundsToPenceTest = (p: number) => Math.round(p * 100);
+const formatGBPSim = (p: number) => (p / 100).toLocaleString('en-GB');
+
+describe('HMO calculator — pounds→pence boundary (form simulation)', () => {
+  it('3 rooms × £1,000 each → gross monthly income displays £3,000', () => {
+    const roomsInPence = [1000, 1000, 1000].map(poundsToPenceTest);
+    const grossPence = calcHmoGrossMonthlyIncome(roomsInPence.map((r) => ({ monthlyRentPence: r })));
+    expect(grossPence).toBe(300000); // pence
+    expect(grossPence / 100).toBe(3000); // pounds
+    expect(formatGBPSim(grossPence)).toBe('3,000');
+  });
+
+  it('3 rooms × £1,000 + £1,500 rent-to-landlord → monthly profit displays £1,200', () => {
+    const roomsPence = [1000, 1000, 1000].map(poundsToPenceTest);
+    const grossPence = calcHmoGrossMonthlyIncome(roomsPence.map((r) => ({ monthlyRentPence: r })));
+    const totalRentPence = roomsPence.reduce((s, r) => s + r, 0);
+    const opCosts = calcHmoMonthlyOperatingCosts({
+      rentToLandlordPence: poundsToPenceTest(1500),
+      billsPence: 0,
+      cleaningPence: 0,
+      grossIncomePence: totalRentPence,
+    });
+    const profit = calcHmoMonthlyProfit(totalRentPence, opCosts);
+    // profit = 300000 - (150000 + 0 + 0 + 30000) = 300000 - 180000 = 120000
+    expect(profit).toBe(120000);
+    expect(profit / 100).toBe(1200);
+    expect(formatGBPSim(profit)).toBe('1,200');
+  });
+
+  it('0 rooms → £0 gross, £0 profit', () => {
+    const grossPence = calcHmoGrossMonthlyIncome([]);
+    expect(grossPence).toBe(0);
+  });
+
+  it('1 room × £500, no costs → gross £500, profit £450 (10% mgmt)', () => {
+    const roomsPence = [500].map(poundsToPenceTest);
+    const grossPence = calcHmoGrossMonthlyIncome(roomsPence.map((r) => ({ monthlyRentPence: r })));
+    const totalRentPence = roomsPence.reduce((s, r) => s + r, 0);
+    const opCosts = calcHmoMonthlyOperatingCosts({
+      rentToLandlordPence: 0,
+      billsPence: 0,
+      cleaningPence: 0,
+      grossIncomePence: totalRentPence,
+    });
+    const profit = calcHmoMonthlyProfit(totalRentPence, opCosts);
+    // profit = 50000 - (0 + 0 + 0 + 5000) = 45000
+    expect(grossPence / 100).toBe(500);
+    expect(profit).toBe(45000);
+    expect(profit / 100).toBe(450);
+  });
+});

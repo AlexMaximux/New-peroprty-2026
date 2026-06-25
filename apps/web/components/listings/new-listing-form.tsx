@@ -20,7 +20,7 @@ import {
   calcSaBreakEvenOccupancy,
   calcSaProfit,
 } from '@propvest/shared';
-import { cn, formatGBP, formatPercent } from '@/lib/utils';
+import { cn, formatGBP, formatPercent, poundsToPence } from '@/lib/utils';
 import { AddressAutocomplete, type PlaceResult } from '@/components/maps/address-autocomplete';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -81,19 +81,35 @@ function buildSteps(
 }
 
 // ── Inline HMO Room Calculator ───────────────────────────────────────────────
+// Exported for component testing.
+// All props come from form state (user enters pounds → stored as pounds).
+// poundsToPence() converts to pence before calling calc fns. formatGBP() converts
+// back for display.
 
-function HmoRoomCalculator({ rooms }: { rooms: HmoRoomDto[] }) {
+export function HmoRoomCalculator({
+  rooms,
+  rentToLandlordPence,
+  billsPence,
+  cleaningPence,
+}: {
+  rooms: HmoRoomDto[];
+  rentToLandlordPence?: number;
+  billsPence?: number;
+  cleaningPence?: number;
+}) {
   if (rooms.length === 0) return null;
 
-  const grossIncome = calcHmoGrossMonthlyIncome(rooms);
-  const totalRent = rooms.reduce((s, r) => s + r.monthlyRentPence, 0);
+  // Convert form pounds→pence before calc
+  const roomsPence = rooms.map((r) => ({ monthlyRentPence: poundsToPence(r.monthlyRentPence) }));
+  const grossIncome = calcHmoGrossMonthlyIncome(roomsPence);
+  const totalRentPence = roomsPence.reduce((s, r) => s + r.monthlyRentPence, 0);
   const opCosts = calcHmoMonthlyOperatingCosts({
-    rentToLandlordPence: 0,
-    billsPence: 0,
-    cleaningPence: 0,
-    grossIncomePence: totalRent,
+    rentToLandlordPence: poundsToPence(rentToLandlordPence),
+    billsPence: poundsToPence(billsPence),
+    cleaningPence: poundsToPence(cleaningPence),
+    grossIncomePence: totalRentPence,
   });
-  const profit = calcHmoMonthlyProfit(totalRent, opCosts);
+  const profit = calcHmoMonthlyProfit(totalRentPence, opCosts);
 
   return (
     <div className="glass-card p-4 mt-3">
@@ -119,6 +135,7 @@ function HmoRoomCalculator({ rooms }: { rooms: HmoRoomDto[] }) {
 }
 
 // ── Inline SA Calculator ─────────────────────────────────────────────────────
+// Props come from form state (pounds). poundsToPence() converts before calc fns.
 
 function SaCalculator({
   nightlyRatePence,
@@ -139,17 +156,20 @@ function SaCalculator({
   managementCostPence?: number;
   otherCostsPence?: number;
 }) {
-  const monthlyIncome = calcSaMonthlyIncome(occupancyRate, nightlyRatePence);
-  const yearlyIncome = calcSaYearlyIncome(occupancyRate, nightlyRatePence);
-  const totalCosts =
-    rentPence +
-    (billsPence ?? 0) +
-    (bookingFeePence ?? 0) +
-    (cleaningCostPence ?? 0) +
-    (managementCostPence ?? 0) +
-    (otherCostsPence ?? 0);
+  // Convert form pounds→pence before calc
+  const nightlyPence = poundsToPence(nightlyRatePence);
+  const rentP = poundsToPence(rentPence);
+  const billsP = poundsToPence(billsPence);
+  const bookingP = poundsToPence(bookingFeePence);
+  const cleaningP = poundsToPence(cleaningCostPence);
+  const managementP = poundsToPence(managementCostPence);
+  const otherP = poundsToPence(otherCostsPence);
+
+  const monthlyIncome = calcSaMonthlyIncome(occupancyRate, nightlyPence);
+  const yearlyIncome = calcSaYearlyIncome(occupancyRate, nightlyPence);
+  const totalCosts = rentP + billsP + bookingP + cleaningP + managementP + otherP;
   const profit = calcSaProfit(monthlyIncome, totalCosts);
-  const breakEven = calcSaBreakEvenOccupancy(totalCosts, nightlyRatePence);
+  const breakEven = calcSaBreakEvenOccupancy(totalCosts, nightlyPence);
 
   return (
     <div className="glass-card p-4 mt-3">
@@ -280,8 +300,11 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
 
     try {
       const values = getValues();
+      // Convert all *Pence fields from pounds→pence for API
       const payload: Record<string, unknown> = {
-        ...values,
+        ...JSON.parse(JSON.stringify(values), (_key: string, val: unknown) =>
+          typeof val === 'number' && val !== 0 && _key.endsWith('Pence') ? Math.round(val * 100) : val,
+        ),
         category: selectedCategory!,
         strategy: selectedStrategy ?? null,
         status,
@@ -533,7 +556,12 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
         + Add Room
       </button>
 
-      <HmoRoomCalculator rooms={hmoRooms as HmoRoomDto[]} />
+      <HmoRoomCalculator
+        rooms={hmoRooms as HmoRoomDto[]}
+        rentToLandlordPence={(ssd as any).rentToLandlordPence}
+        billsPence={(ssd as any).billsPence}
+        cleaningPence={(ssd as any).cleaningPence}
+      />
     </div>
   );
 
@@ -887,7 +915,12 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
   };
 
   const renderSummary = () => {
-    const hmoIncome = hmoRooms.length > 0 ? calcHmoGrossMonthlyIncome(hmoRooms as HmoRoomDto[]) : null;
+    const hmoIncome =
+      hmoRooms.length > 0
+        ? calcHmoGrossMonthlyIncome(
+            (hmoRooms as HmoRoomDto[]).map((r) => ({ monthlyRentPence: poundsToPence(r.monthlyRentPence) })),
+          )
+        : null;
     const ssdAny = ssd as Record<string, any>;
 
     return (
@@ -925,7 +958,7 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
                 {hmoRooms.map((room: any, i: number) => (
                   <div key={i} className="flex justify-between text-sm">
                     <span>{room.name || `Room ${i + 1}`}</span>
-                    <span className="text-slate-300">{formatGBP(room.monthlyRentPence)}</span>
+                    <span className="text-slate-300">{formatGBP(poundsToPence(room.monthlyRentPence))}</span>
                   </div>
                 ))}
               </div>
@@ -943,11 +976,11 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <span>Monthly Income</span>
                 <span className="text-right gradient-text font-medium">
-                  {formatGBP(calcSaMonthlyIncome(ssdAny.occupancyRate, ssdAny.nightlyRatePence))}
+                  {formatGBP(calcSaMonthlyIncome(ssdAny.occupancyRate, poundsToPence(ssdAny.nightlyRatePence)))}
                 </span>
                 <span>Yearly Income</span>
                 <span className="text-right gradient-text font-medium">
-                  {formatGBP(calcSaYearlyIncome(ssdAny.occupancyRate, ssdAny.nightlyRatePence))}
+                  {formatGBP(calcSaYearlyIncome(ssdAny.occupancyRate, poundsToPence(ssdAny.nightlyRatePence)))}
                 </span>
               </div>
             </div>

@@ -60,7 +60,4 @@ import { IntegrationsController } from './integrations.controller';
 })
 export class IntegrationsModule {}
 
-// ── Injection token constants ──
-export const GEOCODING_SERVICE = 'GEOCODING_SERVICE';
-export const AIRDNA_SERVICE = 'AIRDNA_SERVICE';
-export const PROPERTY_DATA_SERVICE = 'PROPERTY_DATA_SERVICE';
+export { GEOCODING_SERVICE, AIRDNA_SERVICE, PROPERTY_DATA_SERVICE } from './integrations.tokens';

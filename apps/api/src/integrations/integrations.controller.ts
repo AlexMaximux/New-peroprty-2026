@@ -1,5 +1,5 @@
 import { Controller, Get, Query, Inject } from '@nestjs/common';
-import { GEOCODING_SERVICE } from './integrations.module';
+import { GEOCODING_SERVICE } from './integrations.tokens';
 import type { GeocodingService } from './geocoding.service';
 
 @Controller('integrations')

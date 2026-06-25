@@ -3,6 +3,12 @@ export function cn(...classes: (string | false | null | undefined)[]): string {
   return classes.filter(Boolean).join(' ');
 }
 
+/** Convert pounds (user input) to integer pence for calc functions */
+export function poundsToPence(pounds: number | undefined | null): number {
+  if (pounds === undefined || pounds === null) return 0;
+  return Math.round(pounds * 100);
+}
+
 /** Format pence to GBP display string, e.g. 150000 → "£1,500" */
 export function formatGBP(pence: number | undefined | null): string {
   if (pence === undefined || pence === null) return '—';

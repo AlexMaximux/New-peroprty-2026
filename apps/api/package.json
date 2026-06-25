@@ -8,10 +8,11 @@
     "build": "nest build",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'lint: ok'",
-    "test": "jest --passWithNoTests",
-    "test:e2e": "npx ts-node scripts/smoke-test.ts",
+    "test": "jest --passWithNoTests && ts-node scripts/smoke-test.ts",
+    "test:e2e": "ts-node scripts/smoke-test.ts",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
+    "db:seed-demo": "ts-node prisma/seed-demo.ts",
     "db:studio": "prisma studio"
   },
   "dependencies": {
