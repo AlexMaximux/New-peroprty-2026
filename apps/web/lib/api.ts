@@ -47,7 +47,7 @@ export interface ListingSearchResult {
   isTenanted: boolean | null;
   publishedAt: string | null;
   createdAt: string;
-  media: { id: string; kind: string; fileKey: string; order: number }[];
+  media: { id: string; kind: string; fileKey: string; order: number; url?: string | null }[];
   hmoRooms: { id: string; name: string; roomType: string; monthlyRentPence: number }[];
   portfolioAssets: { id: string; name: string; valuePence: number | null }[];
   agencyProfile: {
@@ -101,11 +101,16 @@ export interface ListingDetail {
   strategy: string | null;
   status: string;
   propertyType: string | null;
+  propertyTypeOther: string | null;
+  internalRef: string | null;
   addressLine1: string;
+  addressLine2: string | null;
   city: string;
   postcode: string;
+  buildingNumber: string | null;
   region: string | null;
   nation: string | null;
+  regionGroup: string | null;
   latitude: number | null;
   longitude: number | null;
   bedrooms: number | null;
@@ -116,10 +121,13 @@ export interface ListingDetail {
   gardenNotes: string | null;
   parking: string | null;
   furnishedStatus: string | null;
+  furnishingQuality: string | null;
+  furnishingNotes: string | null;
   isVacant: boolean | null;
   isTenanted: boolean | null;
   isLicensed: boolean | null;
   needsRefurb: boolean | null;
+  refurbQuoteType: string | null;
   refurbCostPence: number | null;
   askingPricePence: number | null;
   marketValuePence: number | null;
@@ -127,7 +135,7 @@ export interface ListingDetail {
   strategySpecificData: Record<string, unknown> | null;
   publishedAt: string | null;
   createdAt: string;
-  media: { id: string; kind: string; fileKey: string; originalName: string; order: number }[];
+  media: { id: string; kind: string; fileKey: string; originalName: string; mimeType?: string; isPrimary?: boolean; order: number; url?: string | null }[];
   hmoRooms: { id: string; name: string; roomType: string; monthlyRentPence: number }[];
   portfolioAssets: { id: string; name: string; valuePence: number | null; notes: string | null }[];
   agencyProfile: {
@@ -141,6 +149,101 @@ export interface ListingDetail {
 
 export async function getListing(id: string): Promise<ListingDetail> {
   return apiFetch<ListingDetail>(`/listings/${id}`);
+}
+
+/** List all listings owned by the current agency (all statuses). */
+export interface AgencyListingSummary {
+  id: string;
+  title: string;
+  status: string;
+  category: string;
+  strategy: string | null;
+  askingPricePence: number | null;
+  estimatedRoi: number | null;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  city: string | null;
+  postcode: string | null;
+  createdAt: string;
+  updatedAt: string;
+  media: { id: string; fileKey: string; order: number; url?: string | null }[];
+  hmoRooms: { id: string; name: string; monthlyRentPence: number }[];
+  _count: { conversations: number; favourites: number };
+}
+export async function getAgencyListings(): Promise<AgencyListingSummary[]> {
+  return apiFetch<AgencyListingSummary[]>('/listings');
+}
+
+/** Update an existing listing (owner-only). */
+export async function updateListing(
+  id: string,
+  body: Record<string, unknown>,
+): Promise<ListingDetail> {
+  return apiFetch<ListingDetail>(`/listings/${id}`, {
+    method: 'PATCH',
+    body,
+  });
+}
+
+// ── Media upload (owner-only) ──
+
+export async function presignUpload(
+  listingId: string,
+  fileName: string,
+  mimeType: string,
+): Promise<{ uploadUrl: string; fileKey: string }> {
+  return apiFetch(`/listings/${listingId}/media/presign`, {
+    method: 'POST',
+    body: { fileName, mimeType },
+  });
+}
+
+export async function confirmMedia(
+  listingId: string,
+  fileKey: string,
+  mimeType: string,
+  isPrimary?: boolean,
+): Promise<{ id: string }> {
+  return apiFetch(`/listings/${listingId}/media/confirm`, {
+    method: 'POST',
+    body: { fileKey, mimeType, isPrimary },
+  });
+}
+
+export async function deleteMedia(
+  listingId: string,
+  mediaId: string,
+): Promise<{ deleted: boolean }> {
+  return apiFetch(`/listings/${listingId}/media/${mediaId}`, {
+    method: 'DELETE',
+  });
+}
+
+/**
+ * Full upload flow: presign → PUT to S3 → confirm.
+ * Returns the created media record id.
+ */
+export async function uploadImage(
+  listingId: string,
+  file: File,
+  isPrimary?: boolean,
+): Promise<{ id: string; fileKey: string }> {
+  const { uploadUrl, fileKey } = await presignUpload(listingId, file.name, file.type);
+  const urlObj = new URL(uploadUrl);
+  const putRes = await fetch(uploadUrl, {
+    method: 'PUT',
+    body: file,
+    headers: { 'Content-Type': file.type },
+  });
+  if (!putRes.ok) {
+    let putBody = '';
+    try { putBody = await putRes.text(); } catch { putBody = '<unreadable>'; }
+    throw new Error(
+      `Upload failed: HTTP ${putRes.status} — body: "${putBody.substring(0, 500)}" — host: ${urlObj.origin}`,
+    );
+  }
+  const result = await confirmMedia(listingId, fileKey, file.type, isPrimary ?? false);
+  return { id: result.id, fileKey };
 }
 
 // ── Favourites ──

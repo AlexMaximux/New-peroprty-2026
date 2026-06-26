@@ -4,18 +4,23 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { StorageService } from '../storage/storage.service';
 import {
   createListingSchema,
   updateListingSchema,
   listingSearchSchema,
   getStrategyDataSchema,
+  presignUploadSchema,
+  confirmMediaSchema,
 } from '@propvest/shared';
 
 @Injectable()
 export class ListingService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
   ) {}
 
   /**
@@ -48,7 +53,21 @@ export class ListingService {
       validatedStrategyData = result.data as Record<string, unknown>;
     }
 
-    // 4. Create listing with nested relations
+    // 4a. Promote pricing fields from strategySpecificData to dedicated columns
+    // These direct Prisma columns are what the detail page + search filters read.
+    let promotedAskingPrice: number | undefined;
+    let promotedMarketValue: number | undefined;
+    let promotedEstimatedValue: number | undefined;
+    let promotedRoi: number | undefined;
+    if (validatedStrategyData) {
+      const sd = validatedStrategyData as Record<string, unknown>;
+      if (typeof sd.askingPricePence === 'number') promotedAskingPrice = sd.askingPricePence;
+      if (typeof sd.marketValuePence === 'number') promotedMarketValue = sd.marketValuePence;
+      if (typeof sd.estimatedValuePence === 'number') promotedEstimatedValue = sd.estimatedValuePence;
+      if (typeof sd.estimatedRoi === 'number') promotedRoi = sd.estimatedRoi;
+    }
+
+    // 5. Create listing with nested relations
     const listing = await this.prisma.listing.create({
       data: {
         agencyProfileId: agencyProfile.id,
@@ -86,6 +105,11 @@ export class ListingService {
         needsRefurb: parsed.base.needsRefurb,
         refurbQuoteType: (parsed.base.refurbQuoteType ?? null) as any,
         refurbCostPence: parsed.base.refurbCostPence,
+        // Promoted pricing columns (read by detail page + search filters)
+        askingPricePence: promotedAskingPrice,
+        marketValuePence: promotedMarketValue,
+        estimatedValuePence: promotedEstimatedValue,
+        estimatedRoi: promotedRoi,
         strategySpecificData: (validatedStrategyData ?? undefined) as any,
         hmoRooms: parsed.hmoRooms.length > 0 ? {
           create: parsed.hmoRooms.map((room) => ({
@@ -160,12 +184,22 @@ export class ListingService {
       validatedStrategyData = result.data as Record<string, unknown>;
     }
 
-    // 5. Build the update payload
+    // 6. Build the update payload
     const updateData: any = {};
 
     if (parsed.status !== undefined) updateData.status = parsed.status as any;
     if (parsed.strategy !== undefined) updateData.strategy = parsed.strategy as any;
     if (parsed.strategySpecificData !== undefined) updateData.strategySpecificData = validatedStrategyData as any;
+
+    // 6a. Promote pricing fields from strategySpecificData to dedicated columns
+    // These direct Prisma columns are what the detail page + search filters read.
+    if (validatedStrategyData) {
+      const sd = validatedStrategyData as Record<string, unknown>;
+      if (typeof sd.askingPricePence === 'number') updateData.askingPricePence = sd.askingPricePence;
+      if (typeof sd.marketValuePence === 'number') updateData.marketValuePence = sd.marketValuePence;
+      if (typeof sd.estimatedValuePence === 'number') updateData.estimatedValuePence = sd.estimatedValuePence;
+      if (typeof sd.estimatedRoi === 'number') updateData.estimatedRoi = sd.estimatedRoi;
+    }
 
     if (parsed.base) {
       const b = parsed.base;
@@ -389,5 +423,154 @@ export class ListingService {
         portfolioAssets: true,
       },
     });
+  }
+
+  // ══════════════════════════════════════════════════
+  //  MEDIA MANAGEMENT
+  // ══════════════════════════════════════════════════
+
+  /**
+   * Check that the requesting user owns the listing (or is admin).
+   * Returns the listing with its agency profile for further use.
+   */
+  private async assertOwnership(listingId: string, userId: string) {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      include: { agencyProfile: true },
+    });
+    if (!listing) throw new NotFoundException('Listing not found');
+    if (listing.agencyProfile.userId !== userId) {
+      throw new ForbiddenException('You can only manage your own listings');
+    }
+    return listing;
+  }
+
+  /**
+   * Generate a presigned PUT URL for direct browser-to-S3 upload.
+   * Reuses the same ownership check as PATCH /:id.
+   */
+  async presignUpload(
+    userId: string,
+    listingId: string,
+    body: unknown,
+  ) {
+    await this.assertOwnership(listingId, userId);
+    const parsed = presignUploadSchema.parse(body);
+
+    // Build a structured key: listings/{listingId}/{uuid}-{sanitizedFileName}
+    const sanitizedName = parsed.fileName
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .slice(0, 100);
+    const key = `listings/${listingId}/${randomUUID()}-${sanitizedName}`;
+
+    const uploadUrl = await this.storage.getUploadUrl(key, parsed.mimeType, 600);
+    return { uploadUrl, fileKey: key };
+  }
+
+  /**
+   * Confirm a completed upload by persisting a ListingMedia record.
+   */
+  async confirmMedia(
+    userId: string,
+    listingId: string,
+    body: unknown,
+  ) {
+    await this.assertOwnership(listingId, userId);
+    const parsed = confirmMediaSchema.parse(body);
+
+    // If marking as primary, unset existing primary
+    if (parsed.isPrimary) {
+      await this.prisma.listingMedia.updateMany({
+        where: { listingId, isPrimary: true },
+        data: { isPrimary: false },
+      });
+    }
+
+    // Determine order — append after highest existing
+    const maxOrder = await this.prisma.listingMedia.aggregate({
+      where: { listingId },
+      _max: { order: true },
+    });
+    const nextOrder = (maxOrder._max.order ?? -1) + 1;
+
+    const media = await this.prisma.listingMedia.create({
+      data: {
+        listingId,
+        kind: 'PHOTO',
+        fileKey: parsed.fileKey,
+        originalName: parsed.fileKey.split('/').pop() ?? parsed.fileKey,
+        mimeType: parsed.mimeType,
+        isPrimary: parsed.isPrimary ?? false,
+        order: nextOrder,
+      },
+    });
+
+    return media;
+  }
+
+  /**
+   * Delete a media record and its underlying S3 object.
+   */
+  async deleteMedia(
+    userId: string,
+    listingId: string,
+    mediaId: string,
+  ) {
+    await this.assertOwnership(listingId, userId);
+
+    const media = await this.prisma.listingMedia.findFirst({
+      where: { id: mediaId, listingId },
+    });
+    if (!media) throw new NotFoundException('Media not found');
+
+    // Delete from storage
+    await this.storage.deleteFile(media.fileKey).catch(() => {
+      // Non-fatal: if S3 delete fails, still remove the DB record
+    });
+
+    // Delete DB record
+    await this.prisma.listingMedia.delete({ where: { id: mediaId } });
+
+    // If the deleted media was primary, promote the first remaining
+    if (media.isPrimary) {
+      const first = await this.prisma.listingMedia.findFirst({
+        where: { listingId },
+        orderBy: { order: 'asc' },
+      });
+      if (first) {
+        await this.prisma.listingMedia.update({
+          where: { id: first.id },
+          data: { isPrimary: true },
+        });
+      }
+    }
+
+    return { deleted: true };
+  }
+
+  /**
+   * Hydrate media items with presigned GET URLs.
+   * Called by findById and searchPublic to return usable image URLs.
+   */
+  private async hydrateMediaUrls(
+    items: Array<{ id: string; fileKey: string }>,
+  ): Promise<Array<{ id: string; fileKey: string; url: string | null }>> {
+    return Promise.all(
+      items.map(async (m) => ({
+        ...m,
+        url: await this.storage.getDownloadUrl(m.fileKey).catch(() => null),
+      })),
+    );
+  }
+
+  /**
+   * Find a listing by ID and hydrate media with download URLs.
+   */
+  async findByIdWithUrls(listingId: string) {
+    const listing = await this.findById(listingId);
+    if (listing.media.length > 0) {
+      (listing as any).media = await this.hydrateMediaUrls(listing.media);
+    }
+    return listing;
   }
 }

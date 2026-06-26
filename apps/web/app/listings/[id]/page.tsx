@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { getListing, addFavourite, removeFavourite, startConversation } from '@/lib/api';
 import { formatGBP, formatPercent } from '@/lib/utils';
 import { PropertyMap } from '@/components/maps/property-map';
+import { ImageGallery } from '@/components/listings/image-gallery';
 
 interface ListingDetail {
   id: string;
@@ -14,11 +15,16 @@ interface ListingDetail {
   strategy: string | null;
   status: string;
   propertyType: string | null;
+  propertyTypeOther: string | null;
+  internalRef: string | null;
   addressLine1: string;
+  addressLine2: string | null;
   city: string;
   postcode: string;
+  buildingNumber: string | null;
   region: string | null;
   nation: string | null;
+  regionGroup: string | null;
   latitude: number | null;
   longitude: number | null;
   bedrooms: number | null;
@@ -29,10 +35,13 @@ interface ListingDetail {
   gardenNotes: string | null;
   parking: string | null;
   furnishedStatus: string | null;
+  furnishingQuality: string | null;
+  furnishingNotes: string | null;
   isVacant: boolean | null;
   isTenanted: boolean | null;
   isLicensed: boolean | null;
   needsRefurb: boolean | null;
+  refurbQuoteType: string | null;
   refurbCostPence: number | null;
   askingPricePence: number | null;
   marketValuePence: number | null;
@@ -58,7 +67,6 @@ export default function ListingDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isFavourite, setIsFavourite] = useState(false);
-  const [selectedMedia, setSelectedMedia] = useState(0);
   const [sendingEnquiry, setSendingEnquiry] = useState(false);
 
   useEffect(() => {
@@ -127,8 +135,7 @@ export default function ListingDetailPage() {
     );
   }
 
-  const allMedia = listing.media;
-  const categoryLabel = listing.category.replace(/_/g, ' ');
+  const categoryLabel = listing.category.split('_').join(' ');
 
   return (
     <div className="page-container">
@@ -146,13 +153,21 @@ export default function ListingDetailPage() {
         <div className="min-w-0 flex-1">
           <h1 className="text-2xl font-bold leading-tight sm:text-3xl">{listing.title}</h1>
           <p className="mt-1 text-sm text-slate-400">
-            {listing.addressLine1}, {listing.city}{listing.region ? `, ${listing.region}` : ''} · {listing.postcode}
+            {[listing.buildingNumber, listing.addressLine1, listing.addressLine2, listing.city, listing.region, listing.postcode]
+              .filter(Boolean)
+              .join(', ')}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className="badge badge-green">{categoryLabel}</span>
             {listing.strategy && <span className="badge badge-yellow">{listing.strategy}</span>}
             {listing.propertyType && (
-              <span className="badge badge-blue">{listing.propertyType.replace(/_/g, ' ')}</span>
+              <span className="badge badge-blue">{listing.propertyType.split('_').join(' ')}</span>
+            )}
+            {listing.propertyTypeOther && (
+              <span className="badge badge-blue">{listing.propertyTypeOther}</span>
+            )}
+            {listing.internalRef && (
+              <span className="badge badge-outline">Ref: {listing.internalRef}</span>
             )}
             {listing.needsRefurb && <span className="badge badge-yellow">Needs Refurb</span>}
           </div>
@@ -170,42 +185,8 @@ export default function ListingDetailPage() {
         {/* Main content */}
         <div className="space-y-6 lg:col-span-2">
           {/* Media gallery */}
-          <div className="glass-card overflow-hidden">
-            <div className="flex h-64 items-center justify-center bg-deep-800 sm:h-80">
-              {allMedia.length > 0 ? (
-                <div className="flex h-full w-full items-center justify-center text-slate-500">
-                  <div className="text-center">
-                    <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    <p className="mt-2 text-sm">{allMedia.length} image(s) uploaded</p>
-                    <p className="mt-1 text-xs text-slate-600">Image preview in Phase 5</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center text-slate-500">
-                  <svg className="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  <p className="mt-2 text-sm">No images yet</p>
-                </div>
-              )}
-            </div>
-            {allMedia.length > 1 && (
-              <div className="flex gap-2 border-t border-white/5 p-3">
-                {allMedia.map((m, i) => (
-                  <button
-                    key={m.id}
-                    onClick={() => setSelectedMedia(i)}
-                    className={`h-12 w-16 rounded-lg bg-deep-700 text-xs text-slate-500 transition ${
-                      selectedMedia === i ? 'ring-2 ring-gold-500' : ''
-                    }`}
-                  >
-                    #{i + 1}
-                  </button>
-                ))}
-              </div>
-            )}
+          <div className="glass-card overflow-hidden p-5">
+            <ImageGallery images={listing.media} />
           </div>
 
           {/* Description */}
@@ -227,7 +208,7 @@ export default function ListingDetailPage() {
                   <div key={room.id} className="flex items-center justify-between rounded-lg bg-deep-800 px-3 py-2">
                     <div>
                       <p className="text-sm font-medium">{room.name}</p>
-                      <p className="text-xs text-slate-500">{room.roomType.replace(/_/g, ' ')}</p>
+                      <p className="text-xs text-slate-500">{room.roomType.split('_').join(' ')}</p>
                     </div>
                     <span className="text-sm font-semibold text-gold-400">
                       {formatGBP(room.monthlyRentPence)}/mo
@@ -287,6 +268,38 @@ export default function ListingDetailPage() {
               </div>
             )}
           </div>
+
+          {/* Strategy-specific data */}
+          {listing.strategySpecificData && Object.keys(listing.strategySpecificData).length > 0 ? (
+            <div className="glass-card p-5">
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-400">
+                Deal Terms
+              </h2>
+              <div className="space-y-2 text-sm">
+                {(listing.strategySpecificData as any).rentTerm != null ? (
+                  <MetricRow label="Rent Term" value={String((listing.strategySpecificData as any).rentTerm)} />
+                ) : null}
+                {(listing.strategySpecificData as any).contractLengthMonths != null ? (
+                  <MetricRow label="Contract Length" value={`${(listing.strategySpecificData as any).contractLengthMonths} months`} />
+                ) : null}
+                {(listing.strategySpecificData as any).finderFeePence != null ? (
+                  <MetricRow label="Finder Fee" value={formatGBP((listing.strategySpecificData as any).finderFeePence as number)} gold />
+                ) : null}
+                {(listing.strategySpecificData as any).agencyDetails ? (
+                  <div className="pt-2 border-t border-deep-700">
+                    <p className="text-xs text-slate-500 mb-1">Agency Notes</p>
+                    <p className="text-sm text-slate-300">{(listing.strategySpecificData as any).agencyDetails}</p>
+                  </div>
+                ) : null}
+                {(listing.strategySpecificData as any).notes ? (
+                  <div className="pt-2 border-t border-deep-700">
+                    <p className="text-xs text-slate-500 mb-1">Additional Notes</p>
+                    <p className="text-sm text-slate-300">{(listing.strategySpecificData as any).notes}</p>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {/* Sidebar */}
@@ -302,7 +315,7 @@ export default function ListingDetailPage() {
                 <MetricRow label="Market Value" value={formatGBP(listing.marketValuePence)} gold />
               )}
               {listing.estimatedRoi != null && (
-                <MetricRow label="Estimated ROI" value={formatPercent(Number(listing.estimatedRoi) / 100)} green />
+                <MetricRow label="Estimated ROI" value={formatPercent(Number(listing.estimatedRoi) * 0.01)} green />
               )}
               {listing.refurbCostPence != null && (
                 <MetricRow label="Refurb Cost" value={formatGBP(listing.refurbCostPence)} />
@@ -311,7 +324,7 @@ export default function ListingDetailPage() {
               {listing.bathrooms != null && <MetricRow label="Bathrooms" value={String(listing.bathrooms)} />}
               {listing.floorArea != null && <MetricRow label="Floor Area" value={`${listing.floorArea} sq ft`} />}
               {listing.furnishedStatus && (
-                <MetricRow label="Furnished" value={listing.furnishedStatus.replace(/_/g, ' ')} />
+                <MetricRow label="Furnished" value={listing.furnishedStatus.split('_').join(' ')} />
               )}
               <MetricRow label="Status" value={listing.status} />
               <MetricRow label="Vacant" value={listing.isVacant ? 'Yes' : listing.isVacant === false ? 'No' : '—'} />
@@ -319,6 +332,19 @@ export default function ListingDetailPage() {
               <MetricRow label="Licensed" value={listing.isLicensed ? 'Yes' : listing.isLicensed === false ? 'No' : '—'} />
               {listing.parking && <MetricRow label="Parking" value={listing.parking} />}
               {listing.hasGarden && <MetricRow label="Garden" value={listing.gardenNotes ?? 'Yes'} />}
+              {listing.hasLivingRoom != null && (
+                <MetricRow label="Living Room" value={listing.hasLivingRoom ? 'Yes' : 'No'} />
+              )}
+              {listing.nation && <MetricRow label="Nation" value={listing.nation.split('_').join(' ')} />}
+              {listing.furnishingQuality && (
+                <MetricRow label="Furnishing Quality" value={listing.furnishingQuality} />
+              )}
+              {listing.furnishingNotes && (
+                <MetricRow label="Furnishing Notes" value={listing.furnishingNotes} />
+              )}
+              {listing.refurbQuoteType && (
+                <MetricRow label="Refurb Quote" value={listing.refurbQuoteType.split('_').join(' ')} />
+              )}
             </div>
           </div>
 

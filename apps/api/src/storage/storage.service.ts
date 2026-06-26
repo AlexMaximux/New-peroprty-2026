@@ -6,6 +6,7 @@ import {
   GetObjectCommand,
   ListObjectsV2Command,
   DeleteObjectCommand,
+  PutBucketCorsCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -37,9 +38,34 @@ export class StorageService implements OnModuleInit {
         new ListObjectsV2Command({ Bucket: this.bucket, MaxKeys: 1 }),
       );
     } catch {
-      // Bucket doesn't exist or can't be listed — try creating it
-      // MinIO creates buckets implicitly on first PutObject, but explicit is cleaner
-      // We use a head-bucket approach — if List fails, we assume no bucket
+      // Bucket might not exist — MinIO creates implicitly on first PutObject
+    }
+
+    // Set bucket CORS policy for browser-based uploads.
+    // Works on AWS S3. On MinIO (local dev), CORS is set at the server level
+    // via `mc admin config set` — this call fails silently there, which is fine.
+    try {
+      await this.client.send(
+        new PutBucketCorsCommand({
+          Bucket: this.bucket,
+          CORSConfiguration: {
+            CORSRules: [
+              {
+                AllowedOrigins: ['http://localhost:3000'],
+                AllowedMethods: ['PUT', 'GET', 'HEAD', 'OPTIONS'],
+                AllowedHeaders: ['*'],
+                ExposeHeaders: ['ETag'],
+                MaxAgeSeconds: 3600,
+              },
+            ],
+          },
+        }),
+      );
+    } catch (e) {
+      // Expected on MinIO — warn once, not per-request
+      console.warn(
+        `[Storage] Bucket CORS not configured (OK for MinIO): ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
   }
 

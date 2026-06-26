@@ -81,8 +81,11 @@ export function NavBar() {
 
           {user && user.role === 'AGENCY' && (
             <>
-              <Link href="/agency/listings/new" className={`nav-link ${pathname.startsWith('/agency/listings') ? 'active' : ''}`}>
-                New Listing
+              <Link href="/agency/listings" className={`nav-link ${pathname === '/agency/listings' || (pathname.startsWith('/agency/listings/') && pathname !== '/agency/listings/new') ? 'active' : ''}`}>
+                My Listings
+              </Link>
+              <Link href="/agency/listings/new" className={`nav-link ${pathname === '/agency/listings/new' ? 'active' : ''}`}>
+                + New
               </Link>
               <Link href="/agency/onboarding" className={`nav-link ${pathname.startsWith('/agency/onboarding') ? 'active' : ''}`}>
                 My Agency

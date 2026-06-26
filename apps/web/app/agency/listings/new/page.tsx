@@ -17,7 +17,16 @@ export default function NewListingPage() {
         </div>
       </div>
 
-      <NewListingForm onDraftSaved={(id) => router.push(`/agency/listings/${id}`)} />
+      <NewListingForm
+        onDraftSaved={(id, failedFiles) => {
+          if (failedFiles && failedFiles.length > 0) {
+            try {
+              sessionStorage.setItem(`uploadErrors-${id}`, JSON.stringify(failedFiles));
+            } catch { /* ignore quota */ }
+          }
+          router.push(`/agency/listings/${id}`);
+        }}
+      />
     </div>
   );
 }

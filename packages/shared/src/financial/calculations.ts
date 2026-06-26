@@ -17,6 +17,8 @@ export interface UpfrontCostParams {
   depositPence: number;
   finderFeePence: number;
   legalFeesPence: number;
+  /** One month's rent to landlord — advance rent for rent-to-rent deals */
+  rentToLandlordPence?: number;
   refurbCostPence?: number;
   otherCostsPence?: number;
 }
@@ -75,7 +77,7 @@ export function calcHmoGrossMonthlyIncome(rooms: HmoRoomInput[]): number {
 /**
  * §4.2 HMO Auto-Generated Outputs — "Money needed in"
  *
- * Upfront capital required: deposit + finder fee + legal fees + refurb + other.
+ * Upfront capital required: deposit + one month rent-to-landlord + finder fee + legal fees + refurb + other.
  */
 export function calcHmoMoneyNeededIn(params: UpfrontCostParams): number {
   assertNonNegativeParams(
@@ -84,6 +86,7 @@ export function calcHmoMoneyNeededIn(params: UpfrontCostParams): number {
       finderFeePence: params.finderFeePence,
       legalFeesPence: params.legalFeesPence,
       refurbCostPence: params.refurbCostPence ?? 0,
+      rentToLandlordPence: params.rentToLandlordPence ?? 0,
       otherCostsPence: params.otherCostsPence ?? 0,
     },
     'UpfrontCostParams',
@@ -92,6 +95,7 @@ export function calcHmoMoneyNeededIn(params: UpfrontCostParams): number {
     params.depositPence +
       params.finderFeePence +
       params.legalFeesPence +
+      (params.rentToLandlordPence ?? 0) +
       (params.refurbCostPence ?? 0) +
       (params.otherCostsPence ?? 0),
   );
@@ -135,6 +139,22 @@ export function calcHmoMonthlyProfit(grossIncomePence: number, monthlyOperatingC
   assertNonNegative(grossIncomePence, 'grossIncomePence');
   assertNonNegative(monthlyOperatingCostsPence, 'monthlyOperatingCostsPence');
   return Math.round(grossIncomePence - monthlyOperatingCostsPence);
+}
+
+/**
+ * Year-1 annual profit = ongoing annual profit − finder fee.
+ *
+ * Finder fee is a one-off cost deducted from Year 1 only.
+ * Use this to derive Year-1 monthly profit for display (divide by 12)
+ * so monthly × 12 reconciles exactly to annual with no rounding drift.
+ */
+export function calcHmoYear1AnnualProfit(
+  ongoingAnnualProfitPence: number,
+  finderFeePence: number,
+): number {
+  assertNonNegative(ongoingAnnualProfitPence, 'ongoingAnnualProfitPence');
+  assertNonNegative(finderFeePence, 'finderFeePence');
+  return Math.round(ongoingAnnualProfitPence - finderFeePence);
 }
 
 // ── SA / Serviced Accommodation functions ─────────────────────────────────────

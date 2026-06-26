@@ -5,11 +5,11 @@
   "description": "PropVest Next.js web app",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "NODE_ENV=production next build",
     "typecheck": "tsc --noEmit",
     "lint": "echo 'lint: ok'",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "NODE_OPTIONS='--no-experimental-require-module --no-experimental-detect-module' playwright test --config=playwright.config.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
@@ -33,9 +33,10 @@
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.3",
+    "@vitejs/plugin-react": "^4.7.0",
     "jsdom": "^29.1.1",
     "typescript": "^5.8.0",
+    "vite": "^5.4.21",
     "vitest": "^3.2.6"
   }
 }

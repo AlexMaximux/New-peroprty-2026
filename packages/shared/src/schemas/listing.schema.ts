@@ -118,8 +118,23 @@ export const listingMediaSchema = z.object({
   kind: listingMediaKindSchema,
   fileKey: z.string().min(1),
   originalName: z.string().min(1),
+  mimeType: z.string().optional(),
+  isPrimary: z.boolean().optional(),
 });
 export type ListingMediaDto = z.infer<typeof listingMediaSchema>;
+
+/** Presigned upload request body */
+export const presignUploadSchema = z.object({
+  fileName: z.string().min(1).max(255),
+  mimeType: z.string().regex(/^image\//, { message: 'Only image files are allowed' }),
+});
+
+/** Confirm upload request body */
+export const confirmMediaSchema = z.object({
+  fileKey: z.string().min(1),
+  mimeType: z.string().regex(/^image\//),
+  isPrimary: z.boolean().optional(),
+});
 
 // ── HMO room (repeatable) ────────────────────────────────────────────────────
 
@@ -169,6 +184,11 @@ export const hmoSpecificSchema = r2rCommercialTermsSchema.extend({
   finderFeePence: z.number().int().nonnegative().optional(),
   happyToCoSource: z.boolean().optional(),
   notes: z.string().max(2000).optional(),
+  // Configurable operating costs
+  managementEnabled: z.boolean().optional().default(true),
+  managementRatePercent: z.number().min(0).max(100).optional().default(10),
+  billsPence: z.number().int().nonnegative().optional().default(0),
+  costNotes: z.string().max(2000).optional(),
 });
 export type HmoSpecificDto = z.infer<typeof hmoSpecificSchema>;
 
@@ -201,6 +221,7 @@ export const sellPropertySpecificSchema = z.object({
   askingPricePence: z.number().int().nonnegative().optional(),
   marketValuePence: z.number().int().nonnegative().optional(),
   estimatedValuePence: z.number().int().nonnegative().optional(),
+  estimatedRoi: z.number().min(0).max(100).optional(),
 
   // Commercial data
   propertySize: z.string().max(100).optional(),

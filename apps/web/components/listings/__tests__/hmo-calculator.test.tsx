@@ -12,9 +12,10 @@ describe('HmoRoomCalculator component', () => {
   it('3 rooms × £1,000, no costs → Gross £3,000, Profit £2,700', () => {
     render(<HmoRoomCalculator rooms={ROOMS_3X1000} />);
 
-    expect(screen.getByText('3')).toBeInTheDocument();
-    expect(screen.getByText('£3,000')).toBeInTheDocument();
-    expect(screen.getByText('£2,700')).toBeInTheDocument();
+    expect(screen.getAllByText('3')).toHaveLength(1);
+    // Money values appear in summary header + cost breakdown (×2)
+    expect(screen.getAllByText('£3,000')).toHaveLength(2);
+    expect(screen.getAllByText('£2,700')).toHaveLength(2);
   });
 
   it('3 rooms × £1,000 + £1,500 rent-to-landlord → Gross £3,000, Profit £1,200', () => {
@@ -25,8 +26,8 @@ describe('HmoRoomCalculator component', () => {
       />,
     );
 
-    expect(screen.getByText('£3,000')).toBeInTheDocument();
-    expect(screen.getByText('£1,200')).toBeInTheDocument();
+    expect(screen.getAllByText('£3,000')).toHaveLength(2);
+    expect(screen.getAllByText('£1,200')).toHaveLength(2);
   });
 
   it('empty rooms → null (nothing rendered)', () => {
@@ -43,12 +44,13 @@ describe('HmoRoomCalculator component', () => {
       />,
     );
 
-    expect(screen.getByText('1')).toBeInTheDocument();
-    expect(screen.getByText('£500')).toBeInTheDocument();
-    expect(screen.getByText('£450')).toBeInTheDocument();
+    expect(screen.getAllByText('1')).toHaveLength(1);
+    // £500 appears in summary header + once in breakdown
+    expect(screen.getAllByText('£500')).toHaveLength(2);
+    expect(screen.getAllByText('£450')).toHaveLength(2);
   });
 
-  it('3 rooms × £1,000 + £1,500 landlord + £300 bills + £100 cleaning → Profit £900', () => {
+  it('3 rooms × £1,000 + £1,500 landlord + £300 bills + £100 cleaning → Profit £800', () => {
     render(
       <HmoRoomCalculator
         rooms={ROOMS_3X1000}
@@ -59,6 +61,60 @@ describe('HmoRoomCalculator component', () => {
     );
 
     // Costs: 1500 + 300 + 100 + 300 (mgmt) = 2200 → Profit = 3000 - 2200 = 800
-    expect(screen.getByText('£800')).toBeInTheDocument();
+    expect(screen.getAllByText('£800')).toHaveLength(2);
+  });
+
+  // ── Configurable operating costs: management toggle + bills ──
+
+  it('management OFF + 3×£1k + £1.5k landlord → Profit £1,500', () => {
+    render(
+      <HmoRoomCalculator
+        rooms={ROOMS_3X1000}
+        rentToLandlordPence={1500}
+        managementEnabled={false}
+      />,
+    );
+
+    // £1,500 (rent) in breakdown + profit (appears twice: summary + breakdown)
+    expect(screen.getAllByText('£1,500')).toHaveLength(3);
+    // (OFF) is nested inside a single span with other text
+    expect(screen.getByText((c) => c.includes('(OFF)'))).toBeInTheDocument();
+  });
+
+  it('management ON 10% + 3×£1k + £1.5k landlord → Profit £1,200', () => {
+    render(
+      <HmoRoomCalculator
+        rooms={ROOMS_3X1000}
+        rentToLandlordPence={1500}
+        managementEnabled={true}
+        managementRatePercent={10}
+      />,
+    );
+
+    // Profit £1,200 appears twice: summary header + breakdown footer
+    expect(screen.getAllByText('£1,200')).toHaveLength(2);
+    // (10%) is nested inside a single span with other text
+    expect(screen.getByText((c) => c.includes('(10%)'))).toBeInTheDocument();
+  });
+
+  it('management ON 10% + £200 bills + 3×£1k + £1.5k landlord → Profit £1,000', () => {
+    render(
+      <HmoRoomCalculator
+        rooms={ROOMS_3X1000}
+        rentToLandlordPence={1500}
+        billsPence={200}
+        managementEnabled={true}
+        managementRatePercent={10}
+      />,
+    );
+
+    // Profit £1,000 appears twice: summary header + breakdown footer
+    // £200 appears once in breakdown (bills line)
+    // £1,500 appears once in breakdown (rent line)
+    expect(screen.getAllByText('£1,000')).toHaveLength(2);
+    expect(screen.getAllByText('£200')).toHaveLength(1);
+    expect(screen.getAllByText('£1,500')).toHaveLength(1);
+    // (10%) is nested inside a single span with other text
+    expect(screen.getByText((c) => c.includes('(10%)'))).toBeInTheDocument();
   });
 });

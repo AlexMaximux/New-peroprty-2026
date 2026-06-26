@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  NODE_VERSION: '20'
+  PNPM_VERSION: '9'
+  DATABASE_URL: postgresql://propvest:propvest@localhost:5432/propvest?schema=public
+  S3_ENDPOINT: http://localhost:9000
+  S3_ACCESS_KEY: minioadmin
+  S3_SECRET_KEY: minioadmin
+  S3_BUCKET: propvest-media
+  JWT_ACCESS_SECRET: ci-jwt-access-secret
+  JWT_REFRESH_SECRET: ci-jwt-refresh-secret
+  JWT_ACCESS_TTL: 15m
+  JWT_REFRESH_TTL: 7d
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: propvest
+          POSTGRES_PASSWORD: propvest
+          POSTGRES_DB: propvest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: cd apps/api && npx prisma generate
+
+      - name: Run database migrations
+        run: cd apps/api && npx prisma migrate deploy
+
+      - name: Seed demo data
+        run: pnpm --filter @propvest/api db:seed-demo
+
+      - name: Typecheck all
+        run: pnpm typecheck
+
+      - name: Run unit tests
+        run: pnpm test
+
+      - name: Build all
+        run: pnpm build
+
+      - name: Install Playwright browsers
+        run: cd apps/web && npx playwright install chromium
+
+      - name: Start servers and run e2e tests
+        run: cd apps/web && NODE_OPTIONS='--no-experimental-require-module --no-experimental-detect-module' npx playwright test --config=playwright.config.ts
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
+          NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ''

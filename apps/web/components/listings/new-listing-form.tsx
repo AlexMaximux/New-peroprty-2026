@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
@@ -15,6 +15,10 @@ import {
   calcHmoGrossMonthlyIncome,
   calcHmoMonthlyOperatingCosts,
   calcHmoMonthlyProfit,
+  calcHmoMoneyNeededIn,
+  calcManagementFee,
+  calcRoi,
+  calcHmoYear1AnnualProfit,
   calcSaMonthlyIncome,
   calcSaYearlyIncome,
   calcSaBreakEvenOccupancy,
@@ -22,6 +26,9 @@ import {
 } from '@propvest/shared';
 import { cn, formatGBP, formatPercent, poundsToPence } from '@/lib/utils';
 import { AddressAutocomplete, type PlaceResult } from '@/components/maps/address-autocomplete';
+import { StagedPhotoUploader, type StagedPhoto } from '@/components/listings/staged-photo-uploader';
+import { presignUpload, confirmMedia } from '@/lib/api';
+import { useRouter } from 'next/navigation';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -33,7 +40,12 @@ interface StepConfig {
 }
 
 interface NewListingFormProps {
-  onDraftSaved?: (id: string) => void;
+  /** Called after listing created. failedFiles = image names that failed upload. */
+  onDraftSaved?: (id: string, failedFiles?: string[]) => void;
+  /** If provided, form runs in edit mode — prefills data, submits via PATCH. */
+  listingId?: string;
+  /** Prefill data in CreateListingDto shape (*Pence fields in POUNDS for form display). */
+  initialData?: CreateListingDto;
 }
 
 // ── API helpers ───────────────────────────────────────────────────────────────
@@ -53,6 +65,7 @@ function authHeaders(): Record<string, string> {
 function buildSteps(
   selectedCategory: string | null,
   selectedStrategy: string | null,
+  isEditMode = false,
 ): StepConfig[] {
   const steps: StepConfig[] = [{ id: 'category', label: 'Category' }];
 
@@ -76,6 +89,11 @@ function buildSteps(
     }
   }
 
+  // Add photos step for new listings only
+  if (!isEditMode && selectedCategory) {
+    steps.push({ id: 'section-photos', label: 'Photos' });
+  }
+
   steps.push({ id: 'summary', label: 'Summary' });
   return steps;
 }
@@ -91,11 +109,15 @@ export function HmoRoomCalculator({
   rentToLandlordPence,
   billsPence,
   cleaningPence,
+  managementEnabled = true,
+  managementRatePercent = 10,
 }: {
   rooms: HmoRoomDto[];
   rentToLandlordPence?: number;
   billsPence?: number;
   cleaningPence?: number;
+  managementEnabled?: boolean;
+  managementRatePercent?: number;
 }) {
   if (rooms.length === 0) return null;
 
@@ -103,18 +125,26 @@ export function HmoRoomCalculator({
   const roomsPence = rooms.map((r) => ({ monthlyRentPence: poundsToPence(r.monthlyRentPence) }));
   const grossIncome = calcHmoGrossMonthlyIncome(roomsPence);
   const totalRentPence = roomsPence.reduce((s, r) => s + r.monthlyRentPence, 0);
+
+  const rentToLandlordP = poundsToPence(rentToLandlordPence);
+  const billsP = poundsToPence(billsPence);
+  const cleaningP = poundsToPence(cleaningPence);
+  const mgmtRate = managementEnabled ? managementRatePercent / 100 : 0;
+  const managementFee = calcManagementFee(totalRentPence, mgmtRate);
+
   const opCosts = calcHmoMonthlyOperatingCosts({
-    rentToLandlordPence: poundsToPence(rentToLandlordPence),
-    billsPence: poundsToPence(billsPence),
-    cleaningPence: poundsToPence(cleaningPence),
+    rentToLandlordPence: rentToLandlordP,
+    billsPence: billsP,
+    cleaningPence: cleaningP,
     grossIncomePence: totalRentPence,
+    managementFeeRate: mgmtRate,
   });
   const profit = calcHmoMonthlyProfit(totalRentPence, opCosts);
 
   return (
     <div className="glass-card p-4 mt-3">
       <p className="text-xs text-slate-400 uppercase tracking-wider mb-2">HMO Room Summary</p>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
         <div>
           <p className="text-sm text-slate-400">Rooms</p>
           <p className="text-lg font-semibold">{rooms.length}</p>
@@ -128,6 +158,30 @@ export function HmoRoomCalculator({
           <p className={cn('text-lg font-semibold', profit >= 0 ? 'text-emerald-400' : 'text-red-400')}>
             {formatGBP(profit)}
           </p>
+        </div>
+      </div>
+
+      {/* Cost breakdown */}
+      <div className="pt-3 border-t border-deep-600 space-y-1 text-sm">
+        <div className="flex justify-between text-slate-400">
+          <span>Gross Income</span>
+          <span>{formatGBP(grossIncome)}</span>
+        </div>
+        <div className="flex justify-between text-slate-400">
+          <span>− Rent to Landlord</span>
+          <span>{formatGBP(rentToLandlordP)}</span>
+        </div>
+        <div className="flex justify-between text-slate-400">
+          <span>− Management {managementEnabled ? `(${managementRatePercent}%)` : '(OFF)'}</span>
+          <span>{formatGBP(managementFee)}</span>
+        </div>
+        <div className="flex justify-between text-slate-400">
+          <span>− Bills</span>
+          <span>{formatGBP(billsP)}</span>
+        </div>
+        <div className="flex justify-between text-sm font-medium pt-1 border-t border-deep-600">
+          <span>Monthly Profit</span>
+          <span className={profit >= 0 ? 'text-emerald-400' : 'text-red-400'}>{formatGBP(profit)}</span>
         </div>
       </div>
     </div>
@@ -206,16 +260,19 @@ function SaCalculator({
 
 // ── Main component ──────────────────────────────────────────────────────────
 
-export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
+export default function NewListingForm({ onDraftSaved, listingId, initialData }: NewListingFormProps) {
+  const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [selectedStrategy, setSelectedStrategy] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(initialData?.category ?? null);
+  const [selectedStrategy, setSelectedStrategy] = useState<string | null>(initialData?.strategy ?? null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [stagedPhotos, setStagedPhotos] = useState<StagedPhoto[]>([]);
+  const isEditMode = !!listingId;
 
   const steps = useMemo(
-    () => buildSteps(selectedCategory, selectedStrategy),
-    [selectedCategory, selectedStrategy],
+    () => buildSteps(selectedCategory, selectedStrategy, isEditMode),
+    [selectedCategory, selectedStrategy, isEditMode],
   );
 
   const isLastStep = currentStep >= steps.length - 1;
@@ -234,9 +291,21 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
       hmoRooms: [],
       portfolioAssets: [],
       media: [],
-      strategySpecificData: {},
+      strategySpecificData: {
+        managementEnabled: true,
+        managementRatePercent: 10,
+        billsPence: 0,
+        costNotes: '',
+      },
     },
   });
+
+  // Prefill form when initialData is provided (edit mode)
+  useEffect(() => {
+    if (initialData) {
+      form.reset(initialData as any);
+    }
+  }, [initialData, form]);
 
   const { register, watch, control, getValues, setValue } = form;
 
@@ -257,11 +326,27 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
 
   // ── Navigation ──
 
-  const goNext = useCallback(() => {
+  const goNext = useCallback(async () => {
+    // Step-gate validation: trigger relevant fields before advancing
+    const step = steps[currentStep];
+    if (!step) return;
+
+    if (step.id === 'section-base-info') {
+      // Validate base info before leaving
+      const valid = await form.trigger('base', { shouldFocus: true });
+      if (!valid) return;
+    }
+
+    if (step.id === 'section-hmo-rooms') {
+      // Validate at least first room has a name
+      const valid = await form.trigger('hmoRooms', { shouldFocus: true });
+      if (!valid) return;
+    }
+
     if (currentStep < steps.length - 1) {
       setCurrentStep((s) => s + 1);
     }
-  }, [currentStep, steps.length]);
+  }, [currentStep, steps, form]);
 
   const goBack = useCallback(() => {
     if (currentStep > 0) {
@@ -299,10 +384,23 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
     setSaveError(null);
 
     try {
+      // Validate all form fields before submitting
+      const valid = await form.trigger(undefined, { shouldFocus: true });
+      if (!valid) {
+        setIsSubmitting(false);
+        return;
+      }
+
       const values = getValues();
+      // Sanitize NaN from empty valueAsNumber inputs → undefined so Zod passes
+      const sanitized = JSON.parse(
+        JSON.stringify(values, (_key, val) =>
+          typeof val === 'number' && Number.isNaN(val) ? undefined : val,
+        ),
+      );
       // Convert all *Pence fields from pounds→pence for API
       const payload: Record<string, unknown> = {
-        ...JSON.parse(JSON.stringify(values), (_key: string, val: unknown) =>
+        ...JSON.parse(JSON.stringify(sanitized), (_key: string, val: unknown) =>
           typeof val === 'number' && val !== 0 && _key.endsWith('Pence') ? Math.round(val * 100) : val,
         ),
         category: selectedCategory!,
@@ -310,11 +408,14 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
         status,
       };
 
-      const res = await fetch(`${API_BASE}/listings`, {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify(payload),
-      });
+      const res = await fetch(
+        isEditMode ? `${API_BASE}/listings/${listingId}` : `${API_BASE}/listings`,
+        {
+          method: isEditMode ? 'PATCH' : 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify(payload),
+        },
+      );
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ message: 'Save failed' }));
@@ -322,7 +423,54 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
       }
 
       const listing = await res.json();
-      if (onDraftSaved) onDraftSaved(listing.id);
+
+      // Upload staged photos after listing is created (not during edit)
+      const failedFiles: string[] = [];
+      if (!isEditMode && stagedPhotos.length > 0) {
+        for (const photo of stagedPhotos) {
+          const uploadDetails: Record<string, string> = {};
+          try {
+            const { uploadUrl, fileKey } = await presignUpload(listing.id, photo.file.name, photo.file.type);
+            const urlObj = new URL(uploadUrl);
+            uploadDetails.host = urlObj.origin;
+            uploadDetails.path = urlObj.pathname;
+            uploadDetails.signedHeaders = Array.from(urlObj.searchParams.entries()).map(e => e[0]).join(',');
+            const putRes = await fetch(uploadUrl, {
+              method: 'PUT',
+              body: photo.file,
+              headers: { 'Content-Type': photo.file.type },
+            });
+            uploadDetails.putStatus = String(putRes.status);
+            let putBody = '';
+            try { putBody = await putRes.text(); } catch { putBody = '<unreadable>'; }
+            uploadDetails.putBody = putBody.substring(0, 500);
+            if (!putRes.ok) throw new Error(
+              `HTTP ${putRes.status} — body: ${uploadDetails.putBody} — host: ${uploadDetails.host}`
+            );
+            await confirmMedia(listing.id, fileKey, photo.file.type, photo.isPrimary);
+          } catch (e: unknown) {
+            console.error(
+              `[UploadDiagnostic] Failed to upload "${photo.file.name}":`,
+              JSON.stringify(uploadDetails, null, 2),
+              e instanceof Error ? e.message : String(e),
+            );
+            failedFiles.push(photo.file.name);
+          }
+        }
+        // Cleanup object URLs
+        stagedPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+        setStagedPhotos([]);
+      }
+
+      if (failedFiles.length > 0) {
+        console.warn(`Upload failures for listing ${listing.id}:`, failedFiles);
+      }
+
+      if (isEditMode) {
+        router.push(`/agency/listings/${listing.id}`);
+      } else if (onDraftSaved) {
+        onDraftSaved(listing.id, failedFiles.length > 0 ? failedFiles : undefined);
+      }
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : 'Save failed');
     } finally {
@@ -497,7 +645,9 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
     </div>
   );
 
-  const renderHmoRoomsStep = () => (
+  const renderHmoRoomsStep = () => {
+    const mgmtEnabled: boolean = (watch('strategySpecificData.managementEnabled') as boolean) ?? true;
+    return (
     <div>
       <h2 className="text-xl font-semibold mb-6">Room Configuration</h2>
       <p className="text-sm text-slate-400 mb-4">Add each room in the property</p>
@@ -517,12 +667,15 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="block text-xs text-slate-400 mb-1">Name</label>
+                <label className="block text-xs text-slate-400 mb-1">Name *</label>
                 <input
                   {...register(`hmoRooms.${index}.name`)}
                   className="input-field w-full"
                   placeholder="Room 1"
                 />
+                {form.formState.errors.hmoRooms?.[index]?.name && (
+                  <p className="text-red-400 text-xs mt-1">{form.formState.errors.hmoRooms[index]!.name?.message}</p>
+                )}
               </div>
               <div>
                 <label className="block text-xs text-slate-400 mb-1">Type</label>
@@ -550,20 +703,261 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
 
       <button
         type="button"
-        onClick={() => hmoRoomArray.append({ name: '', roomType: 'DOUBLE_EN_SUITE', monthlyRentPence: 0 })}
+        onClick={() => hmoRoomArray.append({ name: `Room ${hmoRoomArray.fields.length + 1}`, roomType: 'DOUBLE_EN_SUITE', monthlyRentPence: 0 })}
         className="btn-secondary mt-3"
       >
         + Add Room
       </button>
+
+      {/* Operating costs */}
+      <div className="glass-card p-4 mt-6">
+        <p className="text-sm font-semibold text-slate-300 mb-4">Operating Costs</p>
+        <div className="space-y-4">
+          {/* Management toggle */}
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="mgmt-toggle"
+              {...register('strategySpecificData.managementEnabled')}
+              className="h-4 w-4 rounded border-deep-500 bg-deep-700 text-gold-500 focus:ring-gold-500"
+            />
+            <label htmlFor="mgmt-toggle" className="text-sm text-slate-300">Include Management Fee</label>
+          </div>
+
+          {mgmtEnabled && (
+            <div>
+              <label className="block text-sm text-slate-300 mb-1">Management Rate (%)</label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.5"
+                {...register('strategySpecificData.managementRatePercent', { valueAsNumber: true })}
+                className="input-field w-full max-w-[200px]"
+                placeholder="10"
+              />
+            </div>
+          )}
+
+          {/* Monthly Bills */}
+          <div>
+            <label className="block text-sm text-slate-300 mb-1">Monthly Bills (£)</label>
+            <input
+              type="number"
+              min="0"
+              {...register('strategySpecificData.billsPence', { valueAsNumber: true })}
+              className="input-field w-full max-w-[200px]"
+              placeholder="0"
+            />
+          </div>
+
+          {/* Cost notes */}
+          <div>
+            <label className="block text-sm text-slate-300 mb-1">Additional Cost Notes</label>
+            <textarea
+              {...register('strategySpecificData.costNotes')}
+              className="input-field w-full h-20 resize-none"
+              placeholder="Any extra context about costs..."
+            />
+          </div>
+        </div>
+      </div>
 
       <HmoRoomCalculator
         rooms={hmoRooms as HmoRoomDto[]}
         rentToLandlordPence={(ssd as any).rentToLandlordPence}
         billsPence={(ssd as any).billsPence}
         cleaningPence={(ssd as any).cleaningPence}
+        managementEnabled={mgmtEnabled}
+        managementRatePercent={(ssd as any).managementRatePercent ?? 10}
       />
     </div>
-  );
+    );
+  };
+
+  const renderHmoOutputsStep = () => {
+    const base = (watch('base') ?? {}) as Record<string, any>;
+    const rooms = (watch('hmoRooms') ?? []) as HmoRoomDto[];
+    const data = (watch('strategySpecificData') ?? {}) as Record<string, any>;
+
+    const roomsPence = rooms.map((r) => ({ monthlyRentPence: poundsToPence(r.monthlyRentPence) }));
+    const rentToLandlordP = poundsToPence(data.rentToLandlordPence ?? 0);
+    const billsP = poundsToPence(data.billsPence ?? 0);
+    const depositP = poundsToPence(data.depositPence ?? 0);
+    const finderP = poundsToPence(data.finderFeePence ?? 0);
+    const cleaningP = poundsToPence(data.cleaningPence ?? 0);
+    const totalRent = roomsPence.reduce((s, r) => s + r.monthlyRentPence, 0);
+    const mgmtRate = data.managementEnabled ? (data.managementRatePercent ?? 10) / 100 : 0;
+
+    const grossIncome = calcHmoGrossMonthlyIncome(roomsPence);
+    const managementFee = calcManagementFee(totalRent, mgmtRate);
+    const opCosts = calcHmoMonthlyOperatingCosts({
+      rentToLandlordPence: rentToLandlordP,
+      billsPence: billsP,
+      cleaningPence: cleaningP,
+      grossIncomePence: totalRent,
+      managementFeeRate: mgmtRate,
+    });
+    const ongoingMonthlyProfit = calcHmoMonthlyProfit(totalRent, opCosts);
+    const ongoingAnnualProfit = ongoingMonthlyProfit * 12;
+    const year1AnnualProfit = calcHmoYear1AnnualProfit(ongoingAnnualProfit, finderP);
+
+    const moneyNeededIn = calcHmoMoneyNeededIn({
+      depositPence: depositP,
+      finderFeePence: finderP,
+      legalFeesPence: 0,
+      rentToLandlordPence: rentToLandlordP,
+    });
+
+    const year1Roi = moneyNeededIn > 0 ? calcRoi(moneyNeededIn, year1AnnualProfit) : 0;
+    const ongoingRoi = moneyNeededIn > 0 ? calcRoi(moneyNeededIn, ongoingAnnualProfit) : 0;
+
+    const hasData = rooms.length > 0 || data.rentToLandlordPence > 0;
+    const finderMonthlyPence = finderP > 0 ? Math.round(finderP / 12) : 0;
+
+    return (
+      <div>
+        <h2 className="text-xl font-semibold mb-2">HMO Calculations</h2>
+        <p className="text-sm text-slate-400 mb-6">Financial summary and investment metrics</p>
+
+        {!hasData ? (
+          <div className="glass-card p-6 text-center">
+            <p className="text-slate-400 text-sm">Complete <strong>Room Configuration</strong> and <strong>Commercial Terms</strong> steps first.</p>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {/* Location */}
+            <div className="glass-card p-4">
+              <p className="text-xs text-slate-400 uppercase tracking-wider mb-2">Property</p>
+              <p className="font-medium">
+                {[base.addressLine1, base.addressLine2, base.city, base.postcode]
+                  .filter(Boolean)
+                  .join(', ') || 'Address not set'}
+              </p>
+            </div>
+
+            {/* Money needed in */}
+            <div className="glass-card p-4">
+              <p className="text-xs text-slate-400 uppercase tracking-wider mb-3">Money Needed to Get In</p>
+              <div className="space-y-1.5 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Deposit</span>
+                  <span>{formatGBP(depositP)}</span>
+                </div>
+                {rentToLandlordP > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">1 Month Rent in Advance</span>
+                    <span>{formatGBP(rentToLandlordP)}</span>
+                  </div>
+                )}
+                {finderP > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Finder Fee</span>
+                    <span>{formatGBP(finderP)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-medium pt-2 border-t border-deep-600">
+                  <span>Total Upfront</span>
+                  <span className="text-gold-400">{formatGBP(moneyNeededIn)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Income & Profit */}
+            <div className="glass-card p-4">
+              <p className="text-xs text-slate-400 uppercase tracking-wider mb-3">Income &amp; Profit</p>
+
+              {/* Gross monthly */}
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm text-slate-300 font-medium">Gross Monthly Income</span>
+                <span className="text-lg font-semibold gradient-text">{formatGBP(grossIncome)}</span>
+              </div>
+              {rooms.length > 0 && (
+                <div className="space-y-1 mb-3 pb-3 border-b border-deep-700">
+                  {rooms.map((r, i) => (
+                    <div key={i} className="flex justify-between text-xs text-slate-500 pl-3">
+                      <span>{r.name || `Room ${i + 1}`}</span>
+                      <span>{formatGBP(poundsToPence(r.monthlyRentPence))}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Itemised monthly costs */}
+              <div className="space-y-1.5 text-sm">
+                <p className="text-xs text-slate-500 uppercase tracking-wider mb-1.5">Monthly Costs</p>
+                <div className="flex justify-between text-slate-400">
+                  <span>− Rent to Landlord</span>
+                  <span>{formatGBP(rentToLandlordP)}</span>
+                </div>
+                {data.managementEnabled && (
+                  <div className="flex justify-between text-slate-400">
+                    <span>− Management ({data.managementRatePercent ?? 10}%)</span>
+                    <span>{formatGBP(managementFee)}</span>
+                  </div>
+                )}
+                {billsP > 0 && (
+                  <div className="flex justify-between text-slate-400">
+                    <span>− Bills</span>
+                    <span>{formatGBP(billsP)}</span>
+                  </div>
+                )}
+                {cleaningP > 0 && (
+                  <div className="flex justify-between text-slate-400">
+                    <span>− Cleaning</span>
+                    <span>{formatGBP(cleaningP)}</span>
+                  </div>
+                )}
+                {finderMonthlyPence > 0 && (
+                  <div className="flex justify-between text-slate-400">
+                    <span>− Finder Fee ÷ 12</span>
+                    <span>{formatGBP(finderMonthlyPence)}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Profit lines */}
+              <div className="mt-3 pt-3 border-t border-deep-600 space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium">Monthly Profit (Year 1)</span>
+                  <span className={cn('text-lg font-semibold', year1AnnualProfit >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                    {formatGBP(Math.round(year1AnnualProfit / 12))}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-400">Year-1 Annual Profit</span>
+                  <span className={year1AnnualProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                    {formatGBP(year1AnnualProfit)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-400">Ongoing Annual Profit (Year 2+)</span>
+                  <span className="text-emerald-400">{formatGBP(ongoingAnnualProfit)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* ROI */}
+            <div className="glass-card p-4">
+              <p className="text-xs text-slate-400 uppercase tracking-wider mb-3">Return on Investment</p>
+              <div className="space-y-2">
+                {finderP > 0 && (
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-sm text-slate-400">Year-1 ROI</span>
+                    <span className="text-lg font-bold gradient-text">{formatPercent(year1Roi)}</span>
+                  </div>
+                )}
+                <div className="flex items-baseline justify-between">
+                  <span className="text-sm text-slate-400">Ongoing ROI (Year 2+)</span>
+                  <span className="text-lg font-bold gradient-text">{formatPercent(ongoingRoi)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const renderSaRevenueStep = () => (
     <div>
@@ -693,6 +1087,57 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
           />
         </div>
         <div>
+          <label className="block text-sm text-slate-300 mb-1">Estimated Value After Work (£)</label>
+          <input
+            type="number"
+            {...register('strategySpecificData.estimatedValuePence', { valueAsNumber: true })}
+            className="input-field w-full"
+            placeholder="300000"
+          />
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderSellOwnershipStep = () => (
+    <div>
+      <h2 className="text-xl font-semibold mb-6">Ownership & Legal</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Ownership Type</label>
+          <select {...register('strategySpecificData.ownershipType')} className="input-field w-full">
+            <option value="">Select...</option>
+            <option value="FREEHOLD">Freehold</option>
+            <option value="LEASEHOLD">Leasehold</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Lease Expiry Date</label>
+          <input
+            {...register('strategySpecificData.leaseExpiryDate')}
+            className="input-field w-full"
+            placeholder="e.g. 2099-12-31"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Current Rent (£/mo)</label>
+          <input
+            type="number"
+            {...register('strategySpecificData.currentRentPence', { valueAsNumber: true })}
+            className="input-field w-full"
+            placeholder="1500"
+          />
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderSellCostToBuyStep = () => (
+    <div>
+      <h2 className="text-xl font-semibold mb-6">Cost to Buy</h2>
+      <p className="text-sm text-slate-400 mb-4">One-off acquisition costs</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
           <label className="block text-sm text-slate-300 mb-1">Deposit (£)</label>
           <input
             type="number"
@@ -702,13 +1147,238 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
           />
         </div>
         <div>
+          <label className="block text-sm text-slate-300 mb-1">Stamp Duty (£)</label>
+          <input
+            type="number"
+            {...register('strategySpecificData.stampDutyPence', { valueAsNumber: true })}
+            className="input-field w-full"
+            placeholder="2500"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Finder Fee (£)</label>
+          <input
+            type="number"
+            {...register('strategySpecificData.finderFeePence', { valueAsNumber: true })}
+            className="input-field w-full"
+            placeholder="5000"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Legal Fees (£)</label>
+          <input
+            type="number"
+            {...register('strategySpecificData.legalFeesPence', { valueAsNumber: true })}
+            className="input-field w-full"
+            placeholder="1500"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Other Acquisition Costs (£)</label>
+          <input
+            type="number"
+            {...register('strategySpecificData.otherAcquisitionCostsPence', { valueAsNumber: true })}
+            className="input-field w-full"
+            placeholder="0"
+          />
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderSellFinanceStep = () => (
+    <div>
+      <h2 className="text-xl font-semibold mb-6">Finance</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
           <label className="block text-sm text-slate-300 mb-1">Mortgage Interest Rate</label>
           <input
             type="number"
             step="0.001"
+            min="0"
+            max="1"
             {...register('strategySpecificData.mortgageInterestRate', { valueAsNumber: true })}
             className="input-field w-full"
             placeholder="0.045"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Finance Notes</label>
+          <textarea
+            {...register('strategySpecificData.financeNotes')}
+            className="input-field w-full h-20 resize-none"
+            placeholder="Any financing arrangements..."
+          />
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderSellAddValueStep = () => (
+    <div>
+      <h2 className="text-xl font-semibold mb-6">Add-Value Potential</h2>
+      <div className="glass-card p-4 mb-4">
+        <p className="text-sm text-slate-300 mb-3">Value-Add Options</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {['REFURB', 'FULL_REFURB', 'EXTENSION', 'LOFT_CONVERSION', 'CONVERT_TO_HMO', 'SEPARATE_FLATS', 'ADD_BEDROOM'].map((opt) => (
+            <label key={opt} className="flex items-center gap-2 text-sm text-slate-300">
+              <input
+                type="checkbox"
+                value={opt}
+                {...register('strategySpecificData.addValueOptions')}
+                className="h-4 w-4 rounded border-deep-500 bg-deep-700 text-gold-500"
+              />
+              {opt.replace(/_/g, ' ')}
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Refurbishment Cost (£)</label>
+          <input
+            type="number"
+            {...register('strategySpecificData.refurbCostPence', { valueAsNumber: true })}
+            className="input-field w-full"
+            placeholder="50000"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Development Cost (£)</label>
+          <input
+            type="number"
+            {...register('strategySpecificData.developmentCostPence', { valueAsNumber: true })}
+            className="input-field w-full"
+            placeholder="100000"
+          />
+        </div>
+        <div className="flex items-center gap-2 pt-6">
+          <input
+            type="checkbox"
+            {...register('strategySpecificData.builderInPlace')}
+            className="h-4 w-4 rounded border-deep-500 bg-deep-700 text-gold-500"
+          />
+          <span className="text-sm text-slate-300">Builder in place</span>
+        </div>
+        <div className="flex items-center gap-2 pt-6">
+          <input
+            type="checkbox"
+            {...register('strategySpecificData.quoteAvailable')}
+            className="h-4 w-4 rounded border-deep-500 bg-deep-700 text-gold-500"
+          />
+          <span className="text-sm text-slate-300">Quote available</span>
+        </div>
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Estimate Amount (£)</label>
+          <input
+            type="number"
+            {...register('strategySpecificData.estimateAmountPence', { valueAsNumber: true })}
+            className="input-field w-full"
+            placeholder="0"
+          />
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderDevOpportunityStep = () => (
+    <div>
+      <h2 className="text-xl font-semibold mb-6">Development Opportunity</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Cost of Development (£)</label>
+          <input
+            type="number"
+            {...register('strategySpecificData.costOfDevelopmentPence', { valueAsNumber: true })}
+            className="input-field w-full"
+            placeholder="350000"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Estimate Amount (£)</label>
+          <input
+            type="number"
+            {...register('strategySpecificData.estimateAmountPence', { valueAsNumber: true })}
+            className="input-field w-full"
+            placeholder="0"
+          />
+        </div>
+        <div className="flex items-center gap-2 pt-6">
+          <input
+            type="checkbox"
+            {...register('strategySpecificData.builderInPlace')}
+            className="h-4 w-4 rounded border-deep-500 bg-deep-700 text-gold-500"
+          />
+          <span className="text-sm text-slate-300">Builder in place</span>
+        </div>
+        <div className="flex items-center gap-2 pt-6">
+          <input
+            type="checkbox"
+            {...register('strategySpecificData.quoteAvailable')}
+            className="h-4 w-4 rounded border-deep-500 bg-deep-700 text-gold-500"
+          />
+          <span className="text-sm text-slate-300">Quote available</span>
+        </div>
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Legal Costs (£)</label>
+          <input
+            type="number"
+            {...register('strategySpecificData.legalCostsPence', { valueAsNumber: true })}
+            className="input-field w-full"
+            placeholder="15000"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Deposit (£)</label>
+          <input
+            type="number"
+            {...register('strategySpecificData.depositPence', { valueAsNumber: true })}
+            className="input-field w-full"
+            placeholder="50000"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Stamp Duty (£)</label>
+          <input
+            type="number"
+            {...register('strategySpecificData.stampDutyPence', { valueAsNumber: true })}
+            className="input-field w-full"
+            placeholder="13500"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Finder Fees (£)</label>
+          <input
+            type="number"
+            {...register('strategySpecificData.finderFeePence', { valueAsNumber: true })}
+            className="input-field w-full"
+            placeholder="10000"
+          />
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderRefurbOpportunityStep = () => (
+    <div>
+      <h2 className="text-xl font-semibold mb-6">Refurbishment Opportunity</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Cost to Refurbish (£)</label>
+          <input
+            type="number"
+            {...register('strategySpecificData.costToRefurbishPence', { valueAsNumber: true })}
+            className="input-field w-full"
+            placeholder="80000"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-slate-300 mb-1">Potential Add-Value (£)</label>
+          <input
+            type="number"
+            {...register('strategySpecificData.potentialAddValuePence', { valueAsNumber: true })}
+            className="input-field w-full"
+            placeholder="120000"
           />
         </div>
       </div>
@@ -840,6 +1510,26 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
           />
         </div>
       </div>
+
+      {/* Finder fee & co-source */}
+      <div className="mt-6 pt-6 border-t border-deep-600">
+        <p className="text-sm font-semibold text-slate-300 mb-4">Sourcing</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm text-slate-300 mb-1">Finder Fee (£)</label>
+            <input
+              type="number"
+              {...register('strategySpecificData.finderFeePence', { valueAsNumber: true })}
+              className="input-field w-full"
+              placeholder="1000"
+            />
+          </div>
+          <div className="flex items-center gap-2 pt-6">
+            <input type="checkbox" {...register('strategySpecificData.happyToCoSource')} />
+            <span className="text-sm text-slate-300">Happy to co-source</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 
@@ -855,22 +1545,21 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
             placeholder="Your agency or sourcer details..."
           />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm text-slate-300 mb-1">Finder Fee (£)</label>
-            <input
-              type="number"
-              {...register('strategySpecificData.finderFeePence', { valueAsNumber: true })}
-              className="input-field w-full"
-              placeholder="5000"
-            />
-          </div>
-          <div className="flex items-center gap-2 pt-6">
-            <input type="checkbox" {...register('strategySpecificData.coSourceAllowed')} />
-            <span className="text-sm text-slate-300">Happy to co-source</span>
-          </div>
-        </div>
       </div>
+    </div>
+  );
+
+  const renderPhotosStep = () => (
+    <div>
+      <h2 className="text-xl font-semibold mb-6">Property Photos</h2>
+      <p className="text-sm text-slate-400 mb-4">
+        Add photos of the property. You can also add or change photos later from the listing management page.
+      </p>
+      <StagedPhotoUploader
+        photos={stagedPhotos}
+        onPhotosChange={setStagedPhotos}
+        disabled={isSubmitting}
+      />
     </div>
   );
 
@@ -887,20 +1576,60 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
         return renderBaseInfoStep();
       case 'section-hmo-rooms':
         return renderHmoRoomsStep();
+      case 'section-hmo-outputs':
+        return renderHmoOutputsStep();
       case 'section-sa-revenue':
         return renderSaRevenueStep();
       case 'section-sell-pricing':
-      case 'section-sell-cost-to-buy':
-      case 'section-sell-ownership':
         return renderSellPricingStep();
+      case 'section-sell-ownership':
+        return renderSellOwnershipStep();
+      case 'section-sell-cost-to-buy':
+        return renderSellCostToBuyStep();
+      case 'section-sell-finance':
+        return renderSellFinanceStep();
+      case 'section-sell-add-value':
+        return renderSellAddValueStep();
+      case 'section-dev-opportunity':
+        return renderDevOpportunityStep();
+      case 'section-refurb-opportunity':
+        return renderRefurbOpportunityStep();
       case 'section-lease-base':
         return renderLeaseBaseStep();
       case 'section-portfolio-assets':
         return renderPortfolioAssetsStep();
       case 'section-rent-terms':
         return renderRentTermsStep();
+      case 'section-sa-costs':
+        return (
+          <div>
+            <h2 className="text-xl font-semibold mb-3">Operating Costs</h2>
+            <p className="text-sm text-slate-400">
+              Operating costs are collected in the <strong>Revenue Inputs</strong> step above.
+              Return to that step to adjust cost figures.
+            </p>
+          </div>
+        );
+      case 'section-sa-outputs':
+        return (
+          <div>
+            <h2 className="text-xl font-semibold mb-4">SA Calculations</h2>
+            <SaCalculator
+              nightlyRatePence={(ssd as any).nightlyRatePence ?? 0}
+              occupancyRate={(ssd as any).occupancyRate ?? 0}
+              rentPence={(ssd as any).rentPence ?? 0}
+              billsPence={(ssd as any).billsPence}
+              bookingFeePence={(ssd as any).bookingFeePence}
+              cleaningCostPence={(ssd as any).cleaningCostPence}
+              managementCostPence={(ssd as any).managementCostPence}
+              otherCostsPence={(ssd as any).otherCostsPence}
+            />
+          </div>
+        );
       case 'section-agency-network':
         return renderAgencyNetworkStep();
+      case 'section-photos':
+        return renderPhotosStep();
       default: {
         const sectionId = step.id.replace('section-', '');
         const sectionDef = SECTION_DEFS[sectionId];
@@ -1001,6 +1730,13 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
 
   return (
     <div className="max-w-3xl mx-auto">
+      {isEditMode && (
+        <div className="mb-6 rounded-lg border border-gold-500/30 bg-gold-500/5 px-4 py-3">
+          <p className="text-sm text-gold-300">
+            Editing listing — changes will be saved to the existing property.
+          </p>
+        </div>
+      )}
       {/* Step indicator */}
       <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
         {steps.map((step, i) => (
@@ -1050,11 +1786,11 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
           {selectedCategory && (
             <button
               type="button"
-              onClick={() => handleSave('DRAFT')}
+              onClick={() => handleSave(isEditMode ? 'PUBLISHED' : 'DRAFT')}
               disabled={isSubmitting}
               className="text-sm text-slate-400 hover:text-slate-300 transition-colors disabled:opacity-30"
             >
-              {isSubmitting ? 'Saving...' : 'Save Draft'}
+              {isSubmitting ? 'Saving...' : isEditMode ? 'Save Changes' : 'Save Draft'}
             </button>
           )}
 
@@ -1062,10 +1798,10 @@ export default function NewListingForm({ onDraftSaved }: NewListingFormProps) {
             <button
               type="button"
               onClick={() => handleSave('PUBLISHED')}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !form.formState.isValid}
               className="btn-primary disabled:opacity-50"
             >
-              {isSubmitting ? 'Publishing...' : 'Publish Listing'}
+              {isSubmitting ? 'Saving...' : isEditMode ? 'Save Changes' : 'Publish Listing'}
             </button>
           ) : (
             <button

@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete as HttpDelete,
   Param,
   Body,
   UseGuards,
@@ -76,7 +77,7 @@ export class ListingController {
    */
   @Get(':id')
   async findById(@Param('id') id: string) {
-    return this.listingService.findById(id);
+    return this.listingService.findByIdWithUrls(id);
   }
 
   /**
@@ -85,5 +86,55 @@ export class ListingController {
   @Get()
   async findByAgency(@CurrentUser() user: AuthenticatedUser) {
     return this.listingService.findByAgency(user.sub);
+  }
+
+  // ══════════════════════════════════════════════════
+  //  MEDIA ENDPOINTS (owner-only)
+  // ══════════════════════════════════════════════════
+
+  /**
+   * Request a presigned PUT URL for uploading an image directly to S3/MinIO.
+   * Ownership verified in service.
+   */
+  @Post(':id/media/presign')
+  @UseGuards(ApprovedAgencyGuard)
+  @RequireApprovedAgency()
+  @HttpCode(HttpStatus.OK)
+  async presignUpload(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.listingService.presignUpload(user.sub, id, body);
+  }
+
+  /**
+   * Confirm a completed upload by persisting the media record.
+   */
+  @Post(':id/media/confirm')
+  @UseGuards(ApprovedAgencyGuard)
+  @RequireApprovedAgency()
+  @HttpCode(HttpStatus.CREATED)
+  async confirmMedia(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.listingService.confirmMedia(user.sub, id, body);
+  }
+
+  /**
+   * Delete a media record and its underlying S3 object.
+   */
+  @HttpDelete(':id/media/:mediaId')
+  @UseGuards(ApprovedAgencyGuard)
+  @RequireApprovedAgency()
+  @HttpCode(HttpStatus.OK)
+  async deleteMedia(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Param('mediaId') mediaId: string,
+  ) {
+    return this.listingService.deleteMedia(user.sub, id, mediaId);
   }
 }

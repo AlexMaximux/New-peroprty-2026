@@ -2,8 +2,16 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigModule } from '@nestjs/config';
 import { ListingService } from './listing.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { StorageService } from '../storage/storage.service';
 import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import * as argon2 from 'argon2';
+
+// Mock storage service — none of the media tests call it with real S3
+const mockStorage = {
+  getUploadUrl: jest.fn().mockResolvedValue('https://presigned.example.com/upload'),
+  getDownloadUrl: jest.fn().mockResolvedValue('https://presigned.example.com/download'),
+  deleteFile: jest.fn().mockResolvedValue(undefined),
+};
 
 describe('ListingService', () => {
   let module: TestingModule;
@@ -16,7 +24,11 @@ describe('ListingService', () => {
   beforeAll(async () => {
     module = await Test.createTestingModule({
       imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' })],
-      providers: [ListingService, PrismaService],
+      providers: [
+        ListingService,
+        PrismaService,
+        { provide: StorageService, useValue: mockStorage },
+      ],
     }).compile();
 
     listingService = module.get<ListingService>(ListingService);
@@ -188,6 +200,91 @@ describe('ListingService', () => {
       cleanupListingIds.push(listing.id);
     });
 
+    it('should promote pricing columns from strategySpecificData on create', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+
+      const listing = await listingService.create(user.id, {
+        category: 'SELL_PROPERTY',
+        strategy: 'SINGLE_LET',
+        base: {
+          title: 'Pricing Promotion Test',
+          addressLine1: '42 Test Ave',
+          city: 'London',
+          postcode: 'EC1 1BB',
+        },
+        strategySpecificData: {
+          askingPricePence: 25000000,
+          marketValuePence: 27500000,
+          estimatedValuePence: 30000000,
+          ownershipType: 'FREEHOLD',
+          depositPence: 6250000,
+        },
+      });
+
+      expect(listing.askingPricePence).toBe(25000000);
+      expect(listing.marketValuePence).toBe(27500000);
+      expect(listing.estimatedValuePence).toBe(30000000);
+
+      // Also confirm the fields live in strategySpecificData JSONB
+      const sd = listing.strategySpecificData as Record<string, unknown>;
+      expect(sd.askingPricePence).toBe(25000000);
+      expect(sd.marketValuePence).toBe(27500000);
+
+      cleanupListingIds.push(listing.id);
+    });
+
+    it('should promote pricing columns on update', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+
+      const listing = await listingService.create(user.id, {
+        category: 'SELL_PROPERTY',
+        strategy: 'SINGLE_LET',
+        base: {
+          title: 'Update Pricing Test',
+          addressLine1: '10 Update Rd',
+          city: 'Manchester',
+          postcode: 'M1 1ZZ',
+        },
+        strategySpecificData: {
+          askingPricePence: 10000000,
+          marketValuePence: 12000000,
+        },
+      });
+      cleanupListingIds.push(listing.id);
+
+      const updated = await listingService.update(user.id, listing.id, {
+        strategySpecificData: {
+          askingPricePence: 20000000,
+          marketValuePence: 25000000,
+          ownershipType: 'FREEHOLD',
+        },
+      });
+
+      expect(updated.askingPricePence).toBe(20000000);
+      expect(updated.marketValuePence).toBe(25000000);
+
+      // Confirm unchanged fields still in JSONB
+      const sd = updated.strategySpecificData as Record<string, unknown>;
+      expect(sd.marketValuePence).toBe(25000000);
+    });
+
+    it('should reject creation with empty HMO room name', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+
+      const badBody = createValidBody({
+        hmoRooms: [
+          { name: '', roomType: 'DOUBLE_EN_SUITE', monthlyRentPence: 60000 }, // empty name
+          { name: 'Room 2', roomType: 'SINGLE_SHARED', monthlyRentPence: 45000 },
+        ],
+      });
+
+      // ZodError propagates → caught by ZodExceptionFilter at HTTP layer → 400
+      await expect(listingService.create(user.id, badBody)).rejects.toThrow();
+    });
+
     it('should reject creation with invalid strategy data', async () => {
       const user = await createUser();
       await createAgencyProfile(user.id, 'APPROVED');
@@ -320,6 +417,23 @@ describe('ListingService', () => {
 
       const listings = await listingService.findByAgency(user.id);
       expect(listings.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('should only return own listings, not other agencies\'', async () => {
+      const userA = await createUser();
+      await createAgencyProfile(userA.id, 'APPROVED');
+      const listingA = await listingService.create(userA.id, createValidBody());
+      cleanupListingIds.push(listingA.id);
+
+      const userB = await createUser();
+      await createAgencyProfile(userB.id, 'APPROVED');
+      const listingB = await listingService.create(userB.id, createValidBody({ base: { title: 'Other Agency Listing', addressLine1: '99 Other St', city: 'Birmingham', postcode: 'B1 1BB' } }));
+      cleanupListingIds.push(listingB.id);
+
+      const userAListings = await listingService.findByAgency(userA.id);
+      expect(userAListings.length).toBe(1);
+      expect(userAListings[0]!.id).toBe(listingA.id);
+      expect(userAListings[0]!.title).toBe('Test HMO Property');
     });
   });
 
@@ -503,6 +617,138 @@ describe('ListingService', () => {
       // ROI band 0-5 should exclude this
       const resultExcluded = await listingService.searchPublic({ roiMin: 0, roiMax: 5 });
       expect(resultExcluded.data.every((l: any) => Number(l.estimatedRoi ?? 0) <= 5)).toBe(true);
+    });
+  });
+
+  // ══════════════════════════════════════════════════
+  //  MEDIA MANAGEMENT TESTS
+  // ══════════════════════════════════════════════════
+
+  describe('media management', () => {
+    it('presignUpload should return uploadUrl and fileKey', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+      const listing = await listingService.create(user.id, {
+        category: 'SELL_PROPERTY',
+        strategy: 'SINGLE_LET',
+        base: { title: 'Media Test', addressLine1: '1 Media St', city: 'London', postcode: 'EC1 1AA' },
+      });
+      cleanupListingIds.push(listing.id);
+
+      const result = await listingService.presignUpload(user.id, listing.id, {
+        fileName: 'test-image.jpg',
+        mimeType: 'image/jpeg',
+      });
+
+      expect(result.uploadUrl).toBe('https://presigned.example.com/upload');
+      expect(result.fileKey).toMatch(/^listings\//);
+      expect(mockStorage.getUploadUrl).toHaveBeenCalled();
+    });
+
+    it('should reject non-image mimeType in presignUpload', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+      const listing = await listingService.create(user.id, {
+        category: 'SELL_PROPERTY',
+        strategy: 'SINGLE_LET',
+        base: { title: 'Media Test 2', addressLine1: '2 Media St', city: 'London', postcode: 'EC2 2BB' },
+      });
+      cleanupListingIds.push(listing.id);
+
+      await expect(
+        listingService.presignUpload(user.id, listing.id, {
+          fileName: 'test.pdf',
+          mimeType: 'application/pdf',
+        }),
+      ).rejects.toThrow();
+    });
+
+    it('confirmMedia should create a ListingMedia record', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+      const listing = await listingService.create(user.id, {
+        category: 'SELL_PROPERTY',
+        strategy: 'SINGLE_LET',
+        base: { title: 'Media Test 3', addressLine1: '3 Media St', city: 'London', postcode: 'EC3 3BB' },
+      });
+      cleanupListingIds.push(listing.id);
+
+      const result = await listingService.confirmMedia(user.id, listing.id, {
+        fileKey: 'listings/test-key.jpg',
+        mimeType: 'image/jpeg',
+        isPrimary: true,
+      });
+
+      expect(result.id).toBeDefined();
+      expect(result.fileKey).toBe('listings/test-key.jpg');
+      expect(result.isPrimary).toBe(true);
+      expect(result.kind).toBe('PHOTO');
+    });
+
+    it('deleteMedia should remove a ListingMedia record', async () => {
+      const user = await createUser();
+      await createAgencyProfile(user.id, 'APPROVED');
+      const listing = await listingService.create(user.id, {
+        category: 'SELL_PROPERTY',
+        strategy: 'SINGLE_LET',
+        base: { title: 'Media Test 4', addressLine1: '4 Media St', city: 'London', postcode: 'EC4 4BB' },
+      });
+      cleanupListingIds.push(listing.id);
+
+      const media = await listingService.confirmMedia(user.id, listing.id, {
+        fileKey: 'listings/to-delete.jpg',
+        mimeType: 'image/jpeg',
+      });
+
+      await listingService.deleteMedia(user.id, listing.id, media.id);
+
+      const found = await prisma.listingMedia.findUnique({ where: { id: media.id } });
+      expect(found).toBeNull();
+      expect(mockStorage.deleteFile).toHaveBeenCalledWith('listings/to-delete.jpg');
+    });
+
+    it('should reject non-owner presignUpload with ForbiddenException', async () => {
+      const owner = await createUser();
+      await createAgencyProfile(owner.id, 'APPROVED');
+      const listing = await listingService.create(owner.id, {
+        category: 'SELL_PROPERTY',
+        strategy: 'SINGLE_LET',
+        base: { title: 'Non-Owner Media', addressLine1: '5 Media St', city: 'London', postcode: 'EC5 5BB' },
+      });
+      cleanupListingIds.push(listing.id);
+
+      const otherUser = await createUser();
+      await createAgencyProfile(otherUser.id, 'APPROVED');
+
+      await expect(
+        listingService.presignUpload(otherUser.id, listing.id, {
+          fileName: 'hack.jpg',
+          mimeType: 'image/jpeg',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should reject non-owner deleteMedia with ForbiddenException', async () => {
+      const owner = await createUser();
+      await createAgencyProfile(owner.id, 'APPROVED');
+      const listing = await listingService.create(owner.id, {
+        category: 'SELL_PROPERTY',
+        strategy: 'SINGLE_LET',
+        base: { title: 'Non-Owner Delete', addressLine1: '6 Media St', city: 'London', postcode: 'EC6 6BB' },
+      });
+      cleanupListingIds.push(listing.id);
+
+      const media = await listingService.confirmMedia(owner.id, listing.id, {
+        fileKey: 'listings/to-delete-by-non-owner.jpg',
+        mimeType: 'image/jpeg',
+      });
+
+      const otherUser = await createUser();
+      await createAgencyProfile(otherUser.id, 'APPROVED');
+
+      await expect(
+        listingService.deleteMedia(otherUser.id, listing.id, media.id),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

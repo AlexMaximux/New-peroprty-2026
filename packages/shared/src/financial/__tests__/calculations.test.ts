@@ -13,6 +13,7 @@ import {
   calcDeposit,
   calcTotalCostToBuy,
   calcRoi,
+  calcHmoYear1AnnualProfit,
 } from '../calculations';
 import type { HmoRoomInput, UpfrontCostParams, HmoMonthlyOperatingCostParams, BuyCostParams } from '../calculations';
 
@@ -72,6 +73,17 @@ describe('calcHmoMoneyNeededIn', () => {
       legalFeesPence: 3000,
     };
     expect(calcHmoMoneyNeededIn(params)).toBe(33000);
+  });
+
+  it('includes rentToLandlordPence (1 month advance rent) when present', () => {
+    const params: UpfrontCostParams = {
+      depositPence: 25000,
+      finderFeePence: 5000,
+      legalFeesPence: 3000,
+      rentToLandlordPence: 15000,
+    };
+    // 25000 + 5000 + 3000 + 15000 = 48000
+    expect(calcHmoMoneyNeededIn(params)).toBe(48000);
   });
 
   it('returns 0 when all inputs are 0', () => {
@@ -497,7 +509,6 @@ describe('HMO calculator — pounds→pence boundary (form simulation)', () => {
 
   it('3 rooms × £1,000 + £1,500 rent-to-landlord → monthly profit displays £1,200', () => {
     const roomsPence = [1000, 1000, 1000].map(poundsToPenceTest);
-    const grossPence = calcHmoGrossMonthlyIncome(roomsPence.map((r) => ({ monthlyRentPence: r })));
     const totalRentPence = roomsPence.reduce((s, r) => s + r, 0);
     const opCosts = calcHmoMonthlyOperatingCosts({
       rentToLandlordPence: poundsToPenceTest(1500),
@@ -532,5 +543,100 @@ describe('HMO calculator — pounds→pence boundary (form simulation)', () => {
     expect(grossPence / 100).toBe(500);
     expect(profit).toBe(45000);
     expect(profit / 100).toBe(450);
+  });
+});
+
+// ── HMO Year-1 annual profit ──────────────────────────────────────────────────
+
+describe('calcHmoYear1AnnualProfit', () => {
+  it('ongoing annual − finder fee', () => {
+    // £9,000 − £1,000 = £8,000
+    expect(calcHmoYear1AnnualProfit(900000, 100000)).toBe(800000);
+  });
+
+  it('0 finder fee returns ongoing annual unchanged', () => {
+    expect(calcHmoYear1AnnualProfit(500000, 0)).toBe(500000);
+  });
+
+  it('finder fee larger than annual profit → negative', () => {
+    expect(calcHmoYear1AnnualProfit(50000, 100000)).toBe(-50000);
+  });
+
+  it('all zeros', () => {
+    expect(calcHmoYear1AnnualProfit(0, 0)).toBe(0);
+  });
+
+  it('throws on negative ongoing annual', () => {
+    expect(() => calcHmoYear1AnnualProfit(-1, 0)).toThrow('non-negative');
+  });
+
+  it('throws on negative finder fee', () => {
+    expect(() => calcHmoYear1AnnualProfit(100, -1)).toThrow('non-negative');
+  });
+});
+
+// ── HMO full summary scenario (finder amortised, dual ROI) ─────────────────────
+
+describe('HMO full summary scenario (finder amortised, dual ROI)', () => {
+  it('gross £2.5k, landlord £1.5k, mgmt 10%, finder £1k, deposit £1.5k → monthly(Y1) £667, Y1 annual £8k, ongoing annual £9k, Y1 ROI 200%, ongoing ROI 225%', () => {
+    const toPence = (p: number) => Math.round(p * 100);
+
+    // Inputs in pounds (as user enters in form)
+    const depositPounds = 1500;
+    const rentToLandlordPounds = 1500;
+    const finderPounds = 1000;
+    const grossPounds = 2500; // total room rents
+
+    // Convert to pence for calc functions
+    const depositPence = toPence(depositPounds);
+    const rentToLandlordPence = toPence(rentToLandlordPounds);
+    const finderPence = toPence(finderPounds);
+    const grossPence = toPence(grossPounds);
+
+    // Monthly operating costs: landlord 150000 + mgmt 25000 = 175000
+    const opCosts = calcHmoMonthlyOperatingCosts({
+      rentToLandlordPence,
+      billsPence: 0,
+      cleaningPence: 0,
+      grossIncomePence: grossPence,
+      managementFeeRate: 0.10,
+    });
+    expect(opCosts).toBe(175000);
+
+    // Ongoing monthly profit
+    const ongoingMonthlyProfit = calcHmoMonthlyProfit(grossPence, opCosts);
+    expect(ongoingMonthlyProfit).toBe(75000); // £750
+
+    // Ongoing annual
+    const ongoingAnnualProfit = ongoingMonthlyProfit * 12;
+    expect(ongoingAnnualProfit).toBe(900000); // £9,000
+
+    // Year-1 annual (finder deducted)
+    const year1AnnualProfit = calcHmoYear1AnnualProfit(ongoingAnnualProfit, finderPence);
+    expect(year1AnnualProfit).toBe(800000); // £8,000
+
+    // Year-1 monthly (derived from annual to avoid drift)
+    const year1MonthlyPence = Math.round(year1AnnualProfit / 12);
+    expect(year1MonthlyPence).toBe(66667); // £666.67 → display £667
+
+    // Money needed in: deposit £1,500 + 1mo advance £1,500 + finder £1,000 = £4,000
+    const moneyNeededIn = calcHmoMoneyNeededIn({
+      depositPence,
+      finderFeePence: finderPence,
+      legalFeesPence: 0,
+      rentToLandlordPence,
+    });
+    expect(moneyNeededIn / 100).toBe(4000); // £4,000
+
+    // Finder ÷ 12 monthly cost line
+    const finderMonthlyPence = Math.round(finderPence / 12);
+    expect(finderMonthlyPence).toBe(8333); // £83.33
+
+    // ROIs
+    const year1Roi = calcRoi(moneyNeededIn, year1AnnualProfit);
+    expect(year1Roi).toBe(2.0); // 200%
+
+    const ongoingRoi = calcRoi(moneyNeededIn, ongoingAnnualProfit);
+    expect(ongoingRoi).toBe(2.25); // 225%
   });
 });

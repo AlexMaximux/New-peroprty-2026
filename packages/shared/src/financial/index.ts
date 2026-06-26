@@ -12,6 +12,7 @@ export {
   calcDeposit,
   calcTotalCostToBuy,
   calcRoi,
+  calcHmoYear1AnnualProfit,
 } from './calculations';
 
 export type {

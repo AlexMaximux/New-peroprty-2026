@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import cookieParser from 'cookie-parser';
+import { ZodExceptionFilter } from './common/filters/zod-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -13,6 +14,9 @@ async function bootstrap() {
   });
 
   app.use(cookieParser());
+
+  // Global filter: ZodError → HTTP 400 with field-level details
+  app.useGlobalFilters(new ZodExceptionFilter());
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
