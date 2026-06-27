@@ -137,6 +137,31 @@ export const leaseOptionSectionSchema = z.object({
 });
 export type LeaseOptionSectionDto = z.infer<typeof leaseOptionSectionSchema>;
 
+// ── Commercial sections (V1 stubs) ─────────────────────────────────────────────
+
+export const commercialHotelSectionSchema = z.object({
+  rooms: z.number().int().positive().optional(),
+  dailyRatePence: z.number().int().nonnegative().optional(),
+  occupancyRate: z.number().min(0).max(1).optional(),
+  notes: z.string().max(2000).optional(),
+});
+export type CommercialHotelSectionDto = z.infer<typeof commercialHotelSectionSchema>;
+
+export const commercialShopSectionSchema = z.object({
+  floorArea: z.string().max(100).optional(),
+  annualRentPence: z.number().int().nonnegative().optional(),
+  leaseYears: z.number().int().positive().optional(),
+  notes: z.string().max(2000).optional(),
+});
+export type CommercialShopSectionDto = z.infer<typeof commercialShopSectionSchema>;
+
+export const commercialMixedUseSectionSchema = z.object({
+  residentialUnits: z.number().int().positive().optional(),
+  commercialUnits: z.number().int().positive().optional(),
+  notes: z.string().max(2000).optional(),
+});
+export type CommercialMixedUseSectionDto = z.infer<typeof commercialMixedUseSectionSchema>;
+
 // ── Section data union (what each wizard step produces) ──────────────────────
 
 export const sellSectionDataSchema = z.union([
@@ -149,5 +174,8 @@ export const sellSectionDataSchema = z.union([
   refurbOpportunitySectionSchema,
   portfolioSectionSchema,
   leaseOptionSectionSchema,
+  commercialHotelSectionSchema,
+  commercialShopSectionSchema,
+  commercialMixedUseSectionSchema,
 ]);
 export type SellSectionData = z.infer<typeof sellSectionDataSchema>;

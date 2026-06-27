@@ -28,6 +28,7 @@ describe('wizard path → section mapping integrity', () => {
       'DEVELOPMENT_OPPORTUNITY_NO_STRATEGY',
       'REFURB_OPPORTUNITY_NO_STRATEGY',
       'PORTFOLIO_NO_STRATEGY',
+      'COMMERCIAL_HOTEL', 'COMMERCIAL_SHOP', 'COMMERCIAL_MIXED_USE',
     ];
     for (const k of keys) {
       expect(expected, `key "${k}" not in expected set`).toContain(k);

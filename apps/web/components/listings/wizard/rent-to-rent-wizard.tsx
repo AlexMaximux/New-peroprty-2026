@@ -3,7 +3,7 @@
 import { useReducer, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { CATEGORY_CONFIG } from '@propvest/shared';
+import { CATEGORY_CONFIG, isCategoryLevel } from '@propvest/shared';
 import { presignUpload, confirmMedia } from '@/lib/api';
 import type { StagedPhoto } from '@/components/listings/staged-photo-uploader';
 
@@ -35,6 +35,14 @@ import SellCostToBuySection from './sections/sell-cost-to-buy-section';
 import SellFinanceSection from './sections/sell-finance-section';
 import SellAddValueSection from './sections/sell-add-value-section';
 import SellSummarySection from './sections/sell-summary-section';
+// Category-level sections
+import DevOpportunitySection from './sections/dev-opportunity-section';
+import RefurbOpportunitySection from './sections/refurb-opportunity-section';
+import PortfolioAssetsSection from './sections/portfolio-assets-section';
+// Commercial sections
+import CommercialHotelSection from './sections/commercial-hotel-section';
+import CommercialShopSection from './sections/commercial-shop-section';
+import CommercialMixedSection from './sections/commercial-mixed-section';
 
 interface Props {
   onDraftSaved?: (id: string, failedFiles?: string[]) => void;
@@ -51,6 +59,10 @@ export const WIZARD_REGISTERED_SECTIONS: SectionId[] = [
   // Sell Property
   'sell-ownership', 'sell-pricing', 'sell-cost-to-buy', 'sell-finance',
   'sell-add-value', 'sell-summary',
+  // Category-level flows
+  'dev-opportunity', 'refurb-opportunity', 'portfolio-assets',
+  // Commercial stubs
+  'commercial-hotel', 'commercial-shop', 'commercial-mixed',
 ];
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
@@ -134,6 +146,14 @@ export default function RentToRentWizard({ onDraftSaved }: Props) {
           'sell-finance': 'Finance',
           'sell-add-value': 'Add Value',
           'sell-summary': 'Summary',
+          // Category-level flows
+          'dev-opportunity': 'Development',
+          'refurb-opportunity': 'Refurb',
+          'portfolio-assets': 'Portfolio',
+          // Commercial stubs
+          'commercial-hotel': 'Hotel',
+          'commercial-shop': 'Shop',
+          'commercial-mixed': 'Mixed Use',
         };
         labels.push(map[s.sectionId] ?? s.sectionId);
       } else if (s.kind === 'summary') labels.push('Review');
@@ -166,6 +186,17 @@ export default function RentToRentWizard({ onDraftSaved }: Props) {
     if (cat === 'SELL_PROPERTY') {
       const strategy = path?.strategy ?? 'SINGLE_LET';
       dispatch({ type: 'SELECT_PATH', path: { category: 'SELL_PROPERTY', strategy } as WizardPath });
+      return;
+    }
+    // Category-level flows (no strategy) - go straight to first section
+    if (cat === 'DEVELOPMENT_OPPORTUNITY' || cat === 'REFURB_OPPORTUNITY' || cat === 'PORTFOLIO') {
+      dispatch({ type: 'SELECT_PATH', path: { category: cat as any, strategy: null } as WizardPath });
+      return;
+    }
+    // Commercial strategies - show strategy selector
+    if (cat === 'COMMERCIAL') {
+      dispatch({ type: 'SELECT_PATH', path: { category: 'COMMERCIAL', strategy: 'HOTEL' } as WizardPath });
+      dispatch({ type: 'GO_TO_STEP', index: 1 });
       return;
     }
     // For other categories: redirect
@@ -421,6 +452,240 @@ export default function RentToRentWizard({ onDraftSaved }: Props) {
     }
   }, [path, sectionData, stagedPhotosRef, onDraftSaved, router]);
 
+// ── Category-level Submit (Dev/Refurb/Portfolio) ──
+
+  const handleCategoryLevelSubmit = useCallback(async () => {
+    if (!path) return;
+    dispatch({ type: 'SET_SUBMITTING', value: true });
+    dispatch({ type: 'SET_ERROR', error: null });
+
+    try {
+      const address = sectionData['r2r-address'] as any;
+      const agencyDetails = sectionData['agency-details'] as any;
+
+      if (path.category === 'DEVELOPMENT_OPPORTUNITY') {
+        const dev = sectionData['dev-opportunity'] as any;
+        if (!address || !dev) throw new Error('Missing required sections');
+
+        const payload = {
+          category: 'DEVELOPMENT_OPPORTUNITY',
+          strategy: null,
+          status: 'PUBLISHED',
+          base: {
+            title: `${address.houseNumber ? address.houseNumber + ' ' : ''}${address.addressLine1}`,
+            addressLine1: address.addressLine1,
+            addressLine2: address.addressLine2 ?? '',
+            city: address.city,
+            postcode: address.postcode,
+            buildingNumber: address.houseNumber ?? '',
+            region: address.region === 'MANUAL' ? (address.manualRegion ?? '') : address.region,
+            propertyType: address.propertyType,
+            propertyTypeOther: address.propertyTypeOther ?? '',
+            latitude: address.latitude ?? undefined,
+            longitude: address.longitude ?? undefined,
+          },
+          strategySpecificData: {
+            costOfDevelopmentPence: dev.costOfDevelopmentPence,
+            builderInPlace: dev.builderInPlace,
+            quoteAvailable: dev.quoteAvailable,
+            estimateAmountPence: dev.estimateAmountPence,
+            legalCostsPence: dev.legalCostsPence,
+            agencyDetails: agencyDetails?.agencyDetails ?? '',
+          },
+        };
+        await submitListing(payload, stagedPhotosRef.current);
+
+      } else if (path.category === 'REFURB_OPPORTUNITY') {
+        const refurb = sectionData['refurb-opportunity'] as any;
+        const pricing = sectionData['sell-pricing'] as any;
+        if (!address || !refurb || !pricing) throw new Error('Missing required sections');
+
+        const payload = {
+          category: 'REFURB_OPPORTUNITY',
+          strategy: null,
+          status: 'PUBLISHED',
+          base: {
+            title: `${address.houseNumber ? address.houseNumber + ' ' : ''}${address.addressLine1}`,
+            addressLine1: address.addressLine1,
+            addressLine2: address.addressLine2 ?? '',
+            city: address.city,
+            postcode: address.postcode,
+            buildingNumber: address.houseNumber ?? '',
+            region: address.region === 'MANUAL' ? (address.manualRegion ?? '') : address.region,
+            propertyType: address.propertyType,
+            propertyTypeOther: address.propertyTypeOther ?? '',
+            latitude: address.latitude ?? undefined,
+            longitude: address.longitude ?? undefined,
+          },
+          strategySpecificData: {
+            costToRefurbishPence: refurb.costToRefurbishPence,
+            potentialAddValuePence: refurb.potentialAddValuePence,
+            askingPricePence: pricing.askingPricePence,
+            marketValuePence: pricing.marketValuePence,
+            estimatedValuePence: pricing.estimatedValuePence,
+            existingRentPence: pricing.existingRentPence,
+            potentialRentPence: pricing.potentialRentPence,
+            ricsType: pricing.ricsType,
+            agencyDetails: agencyDetails?.agencyDetails ?? '',
+          },
+        };
+        await submitListing(payload, stagedPhotosRef.current);
+
+      } else if (path.category === 'PORTFOLIO') {
+        const portfolio = sectionData['portfolio-assets'] as any;
+        if (!address || !portfolio) throw new Error('Missing required sections');
+
+        const payload = {
+          category: 'PORTFOLIO',
+          strategy: null,
+          status: 'PUBLISHED',
+          base: {
+            title: portfolio.portfolioTitle ?? `${address.houseNumber ? address.houseNumber + ' ' : ''}${address.addressLine1}`,
+            addressLine1: address.addressLine1,
+            addressLine2: address.addressLine2 ?? '',
+            city: address.city,
+            postcode: address.postcode,
+            buildingNumber: address.houseNumber ?? '',
+            region: address.region === 'MANUAL' ? (address.manualRegion ?? '') : address.region,
+            propertyType: address.propertyType,
+            propertyTypeOther: address.propertyTypeOther ?? '',
+            latitude: address.latitude ?? undefined,
+            longitude: address.longitude ?? undefined,
+          },
+          strategySpecificData: {
+            portfolioTitle: portfolio.portfolioTitle,
+            numberOfProperties: portfolio.numberOfProperties,
+            summary: portfolio.summary,
+            notes: portfolio.notes,
+            assets: portfolio.assets,
+            agencyDetails: agencyDetails?.agencyDetails ?? '',
+          },
+        };
+        await submitListing(payload, stagedPhotosRef.current);
+      }
+
+      if (onDraftSaved) onDraftSaved('new', []);
+      else router.push('/agency/listings');
+    } catch (err: any) {
+      dispatch({ type: 'SET_ERROR', error: err.message ?? 'Publish failed' });
+    } finally {
+      dispatch({ type: 'SET_SUBMITTING', value: false });
+    }
+  }, [path, sectionData, stagedPhotosRef, onDraftSaved, router]);
+
+  // ── Commercial Submit ──
+
+  const handleCommercialSubmit = useCallback(async () => {
+    if (!path) return;
+    dispatch({ type: 'SET_SUBMITTING', value: true });
+    dispatch({ type: 'SET_ERROR', error: null });
+
+    try {
+      const address = sectionData['r2r-address'] as any;
+      const agencyDetails = sectionData['agency-details'] as any;
+
+      if (path.strategy === 'HOTEL') {
+        const hotel = sectionData['commercial-hotel'] as any;
+        if (!address || !hotel) throw new Error('Missing required sections');
+
+        const payload = {
+          category: 'COMMERCIAL',
+          strategy: 'HOTEL',
+          status: 'PUBLISHED',
+          base: {
+            title: `${address.houseNumber ? address.houseNumber + ' ' : ''}${address.addressLine1}`,
+            addressLine1: address.addressLine1,
+            addressLine2: address.addressLine2 ?? '',
+            city: address.city,
+            postcode: address.postcode,
+            buildingNumber: address.houseNumber ?? '',
+            region: address.region === 'MANUAL' ? (address.manualRegion ?? '') : address.region,
+            propertyType: address.propertyType,
+            propertyTypeOther: address.propertyTypeOther ?? '',
+            latitude: address.latitude ?? undefined,
+            longitude: address.longitude ?? undefined,
+          },
+          strategySpecificData: {
+            rooms: hotel.rooms,
+            dailyRatePence: hotel.dailyRatePence,
+            occupancyRate: hotel.occupancyRate,
+            notes: hotel.notes,
+            agencyDetails: agencyDetails?.agencyDetails ?? '',
+          },
+        };
+        await submitListing(payload, stagedPhotosRef.current);
+
+      } else if (path.strategy === 'SHOP') {
+        const shop = sectionData['commercial-shop'] as any;
+        if (!address || !shop) throw new Error('Missing required sections');
+
+        const payload = {
+          category: 'COMMERCIAL',
+          strategy: 'SHOP',
+          status: 'PUBLISHED',
+          base: {
+            title: `${address.houseNumber ? address.houseNumber + ' ' : ''}${address.addressLine1}`,
+            addressLine1: address.addressLine1,
+            addressLine2: address.addressLine2 ?? '',
+            city: address.city,
+            postcode: address.postcode,
+            buildingNumber: address.houseNumber ?? '',
+            region: address.region === 'MANUAL' ? (address.manualRegion ?? '') : address.region,
+            propertyType: address.propertyType,
+            propertyTypeOther: address.propertyTypeOther ?? '',
+            latitude: address.latitude ?? undefined,
+            longitude: address.longitude ?? undefined,
+          },
+          strategySpecificData: {
+            floorArea: shop.floorArea,
+            annualRentPence: shop.annualRentPence,
+            leaseYears: shop.leaseYears,
+            notes: shop.notes,
+            agencyDetails: agencyDetails?.agencyDetails ?? '',
+          },
+        };
+        await submitListing(payload, stagedPhotosRef.current);
+
+      } else if (path.strategy === 'MIXED_USE') {
+        const mixed = sectionData['commercial-mixed'] as any;
+        if (!address || !mixed) throw new Error('Missing required sections');
+
+        const payload = {
+          category: 'COMMERCIAL',
+          strategy: 'MIXED_USE',
+          status: 'PUBLISHED',
+          base: {
+            title: `${address.houseNumber ? address.houseNumber + ' ' : ''}${address.addressLine1}`,
+            addressLine1: address.addressLine1,
+            addressLine2: address.addressLine2 ?? '',
+            city: address.city,
+            postcode: address.postcode,
+            buildingNumber: address.houseNumber ?? '',
+            region: address.region === 'MANUAL' ? (address.manualRegion ?? '') : address.region,
+            propertyType: address.propertyType,
+            propertyTypeOther: address.propertyTypeOther ?? '',
+            latitude: address.latitude ?? undefined,
+            longitude: address.longitude ?? undefined,
+          },
+          strategySpecificData: {
+            residentialUnits: mixed.residentialUnits,
+            commercialUnits: mixed.commercialUnits,
+            notes: mixed.notes,
+            agencyDetails: agencyDetails?.agencyDetails ?? '',
+          },
+        };
+        await submitListing(payload, stagedPhotosRef.current);
+      }
+
+      if (onDraftSaved) onDraftSaved('new', []);
+      else router.push('/agency/listings');
+    } catch (err: any) {
+      dispatch({ type: 'SET_ERROR', error: err.message ?? 'Publish failed' });
+    } finally {
+      dispatch({ type: 'SET_SUBMITTING', value: false });
+    }
+  }, [path, sectionData, stagedPhotosRef, onDraftSaved, router]);
+
   const submitListing = async (payload: Record<string, unknown>, photos: StagedPhoto[]) => {
     // POST to API
     const res = await fetch(`${API_BASE}/listings`, {
@@ -475,13 +740,13 @@ export default function RentToRentWizard({ onDraftSaved }: Props) {
           <div>
             <h2 className="text-xl font-semibold mb-6">Listing Category</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {CATEGORY_CONFIG.filter(c => c.category === 'RENT_TO_RENT' || c.category === 'SELL_PROPERTY').map((cat) => (
+              {CATEGORY_CONFIG.map((cat) => (
                 <button key={cat.category} type="button"
                   onClick={() => selectCategory(cat.category)}
                   className="glass-card p-5 text-left transition-all duration-200 hover:bg-deep-600 ring-2 ring-gold-400 shadow-glow-gold"
                 >
                   <p className="font-semibold text-base">{cat.label}</p>
-                  <p className="text-xs text-slate-400 mt-1">{cat.strategies.length} strategies</p>
+                  <p className="text-xs text-slate-400 mt-1">{isCategoryLevel(cat.category) ? 'Category-level flow' : `${cat.strategies.length} strategies`}</p>
                 </button>
               ))}
             </div>
@@ -545,7 +810,20 @@ export default function RentToRentWizard({ onDraftSaved }: Props) {
           return <AgencyDetailsSection onNext={(d) => onSectionNext('agency-details', d)} onBack={goBack} />;
         }
         if (sec === 'media') {
-          return <MediaSection initialData={stagedPhotosRef.current} onNext={(photos) => { stagedPhotosRef.current = photos; goForward(); }} onBack={goBack} />;
+          const isCategoryLevel = path?.strategy === null;
+          const isCommercial = path?.category === 'COMMERCIAL';
+          const onMediaNext = isCategoryLevel
+            ? (photos: StagedPhoto[]) => {
+                stagedPhotosRef.current = photos;
+                // Submit directly for category-level flows
+                if (path?.category === 'DEVELOPMENT_OPPORTUNITY') handleCategoryLevelSubmit();
+                else if (path?.category === 'REFURB_OPPORTUNITY') handleCategoryLevelSubmit();
+                else if (path?.category === 'PORTFOLIO') handleCategoryLevelSubmit();
+              }
+            : isCommercial
+            ? (photos: StagedPhoto[]) => { stagedPhotosRef.current = photos; handleCommercialSubmit(); }
+            : (photos: StagedPhoto[]) => { stagedPhotosRef.current = photos; goForward(); };
+          return <MediaSection initialData={stagedPhotosRef.current} onNext={onMediaNext} onBack={goBack} />;
         }
         if (sec === 'hmo-summary') {
           return (
@@ -609,6 +887,35 @@ export default function RentToRentWizard({ onDraftSaved }: Props) {
               isSubmitting={isSubmitting}
             />
           );
+        }
+        // ── Category-level flow sections ──
+        if (sec === 'dev-opportunity') {
+          // For dev: go to media then submit (no summary)
+          const onNext = (d: unknown) => { onSectionNext('dev-opportunity', d); };
+          return <DevOpportunitySection initialData={sectionData['dev-opportunity'] as any} onNext={onNext} onBack={goBack} />;
+        }
+        if (sec === 'refurb-opportunity') {
+          // For refurb: go to media then submit (no summary)
+          const onNext = (d: unknown) => { onSectionNext('refurb-opportunity', d); };
+          return <RefurbOpportunitySection initialData={sectionData['refurb-opportunity'] as any} onNext={onNext} onBack={goBack} />;
+        }
+        if (sec === 'portfolio-assets') {
+          // For portfolio: go to media then submit (no summary)
+          const onNext = (d: unknown) => { onSectionNext('portfolio-assets', d); };
+          return <PortfolioAssetsSection initialData={sectionData['portfolio-assets'] as any} onNext={onNext} onBack={goBack} />;
+        }
+        // ── Commercial sections ──
+        if (sec === 'commercial-hotel') {
+          const onNext = (d: unknown) => { onSectionNext('commercial-hotel', d); };
+          return <CommercialHotelSection initialData={sectionData['commercial-hotel'] as any} onNext={onNext} onBack={goBack} />;
+        }
+        if (sec === 'commercial-shop') {
+          const onNext = (d: unknown) => { onSectionNext('commercial-shop', d); };
+          return <CommercialShopSection initialData={sectionData['commercial-shop'] as any} onNext={onNext} onBack={goBack} />;
+        }
+        if (sec === 'commercial-mixed') {
+          const onNext = (d: unknown) => { onSectionNext('commercial-mixed', d); };
+          return <CommercialMixedSection initialData={sectionData['commercial-mixed'] as any} onNext={onNext} onBack={goBack} />;
         }
 
         // Fallback — missing component registration

@@ -19,6 +19,10 @@ export const ALL_WIZARD_PATHS: WizardPath[] = [
   { category: 'DEVELOPMENT_OPPORTUNITY', strategy: null },
   { category: 'REFURB_OPPORTUNITY', strategy: null },
   { category: 'PORTFOLIO', strategy: null },
+  // Commercial strategies
+  { category: 'COMMERCIAL', strategy: 'HOTEL' },
+  { category: 'COMMERCIAL', strategy: 'SHOP' },
+  { category: 'COMMERCIAL', strategy: 'MIXED_USE' },
 ];
 
 export type WizardPath =
@@ -38,7 +42,11 @@ export type WizardPath =
   // Category-level flows
   | { category: 'DEVELOPMENT_OPPORTUNITY'; strategy: null }
   | { category: 'REFURB_OPPORTUNITY'; strategy: null }
-  | { category: 'PORTFOLIO'; strategy: null };
+  | { category: 'PORTFOLIO'; strategy: null }
+  // Commercial strategies
+  | { category: 'COMMERCIAL'; strategy: 'HOTEL' }
+  | { category: 'COMMERCIAL'; strategy: 'SHOP' }
+  | { category: 'COMMERCIAL'; strategy: 'MIXED_USE' };
 
 // ── Section IDs ────────────────────────────────────────────────────────────
 
@@ -67,7 +75,11 @@ export type SectionId =
   // Category-level flows
   | 'dev-opportunity'
   | 'refurb-opportunity'
-  | 'portfolio-assets';
+  | 'portfolio-assets'
+  // Commercial stubs
+  | 'commercial-hotel'
+  | 'commercial-shop'
+  | 'commercial-mixed';
 
 // ── Step types ─────────────────────────────────────────────────────────────
 
@@ -227,6 +239,25 @@ export const PATH_SECTIONS: Record<string, SectionId[]> = {
   PORTFOLIO_NO_STRATEGY: [
     'r2r-address',
     'portfolio-assets',
+    'agency-details',
+    'media',
+  ],
+  // ── Commercial strategies ──
+  COMMERCIAL_HOTEL: [
+    'r2r-address',
+    'commercial-hotel',
+    'agency-details',
+    'media',
+  ],
+  COMMERCIAL_SHOP: [
+    'r2r-address',
+    'commercial-shop',
+    'agency-details',
+    'media',
+  ],
+  COMMERCIAL_MIXED_USE: [
+    'r2r-address',
+    'commercial-mixed',
     'agency-details',
     'media',
   ],
