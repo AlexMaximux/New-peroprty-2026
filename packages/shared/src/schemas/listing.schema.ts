@@ -28,6 +28,7 @@ export const listingStrategySchema = z.enum([
   'EXTENSION',
   'LOFT_CONVERSION',
   'BMV',
+  'BLOCK_OF_PROPERTY',
 ]);
 export type ListingStrategy = z.infer<typeof listingStrategySchema>;
 
@@ -177,6 +178,10 @@ export const hmoSpecificSchema = r2rCommercialTermsSchema.extend({
   isLicensed: z.boolean().optional(),
   isTenanted: z.boolean().optional(),
   needsRefurb: z.boolean().optional(),
+  licenceNote: z.string().max(20).optional(),
+  licenceNoteExplanation: z.string().max(200).optional(),
+  tenancyType: z.string().max(20).optional(),
+  roomsTenanted: z.number().int().nonnegative().optional(),
   refurbCostPence: z.number().int().nonnegative().optional(),
   refurbQuoteType: refurbQuoteTypeSchema.optional(),
   managementAvailable: z.boolean().optional(),

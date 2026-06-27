@@ -1,11 +1,8 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import NewListingForm from '@/components/listings/new-listing-form';
+import RentToRentWizard from '@/components/listings/wizard/rent-to-rent-wizard';
 
 export default function NewListingPage() {
-  const router = useRouter();
-
   return (
     <div className="page-container">
       <div className="flex items-center justify-between mb-8">
@@ -17,16 +14,7 @@ export default function NewListingPage() {
         </div>
       </div>
 
-      <NewListingForm
-        onDraftSaved={(id, failedFiles) => {
-          if (failedFiles && failedFiles.length > 0) {
-            try {
-              sessionStorage.setItem(`uploadErrors-${id}`, JSON.stringify(failedFiles));
-            } catch { /* ignore quota */ }
-          }
-          router.push(`/agency/listings/${id}`);
-        }}
-      />
+      <RentToRentWizard />
     </div>
   );
 }

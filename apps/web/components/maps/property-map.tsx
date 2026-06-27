@@ -1,6 +1,7 @@
 'use client';
 
-import { useLoadScript, GoogleMap, Marker } from '@react-google-maps/api';
+import { GoogleMap, Marker } from '@react-google-maps/api';
+import { useMaps } from '@/components/maps/maps-provider';
 
 interface PropertyMapProps {
   latitude: number;
@@ -13,10 +14,7 @@ const mapContainerStyle = { width: '100%', height: '100%', borderRadius: '0.75re
 const defaultZoom = 15;
 
 export function PropertyMap({ latitude, longitude, address, className = '' }: PropertyMapProps) {
-  const { isLoaded, loadError } = useLoadScript({
-    id: 'google-maps-script',
-    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '',
-  });
+  const { isLoaded, loadError } = useMaps();
 
   if (loadError) {
     return (

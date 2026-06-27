@@ -1,7 +1,8 @@
 'use client';
 
 import { useRef, useState, useCallback } from 'react';
-import { useLoadScript, Autocomplete } from '@react-google-maps/api';
+import { Autocomplete } from '@react-google-maps/api';
+import { useMaps } from '@/components/maps/maps-provider';
 
 export interface PlaceResult {
   addressLine1: string;
@@ -22,8 +23,6 @@ interface AddressAutocompleteProps {
   className?: string;
 }
 
-const libraries: ('places')[] = ['places'];
-
 export function AddressAutocomplete({
   onPlaceSelected,
   defaultValue,
@@ -33,11 +32,7 @@ export function AddressAutocomplete({
   const inputRef = useRef<HTMLInputElement>(null);
   const [autocomplete, setAutocomplete] = useState<google.maps.places.Autocomplete | null>(null);
 
-  const { isLoaded, loadError } = useLoadScript({
-    id: 'google-maps-script',
-    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '',
-    libraries,
-  });
+  const { isLoaded, loadError } = useMaps();
 
   const onLoad = useCallback((ac: google.maps.places.Autocomplete) => {
     setAutocomplete(ac);

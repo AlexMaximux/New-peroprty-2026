@@ -20,7 +20,7 @@
       "outputs": []
     },
     "test": {
-      "dependsOn": ["build"],
+      "dependsOn": ["build", "typecheck"],
       "outputs": []
     },
     "test:e2e": {

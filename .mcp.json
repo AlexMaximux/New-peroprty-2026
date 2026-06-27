@@ -7,10 +7,10 @@
       "args": [
         "-y",
         "@modelcontextprotocol/server-postgres",
-        "${DATABASE_URL}"
+        "postgresql://propvest:propvest@localhost:5432/propvest?schema=public"
       ],
       "env": {
-        "DATABASE_URL": "${DATABASE_URL}"
+        "DATABASE_URL": "postgresql://propvest:propvest@localhost:5432/propvest?schema=public"
       }
     },
     "filesystem": {
@@ -18,7 +18,7 @@
       "args": [
         "-y",
         "@modelcontextprotocol/server-filesystem",
-        "."
+        "/Users/nersibayat/Desktop/Programing/claude code-sand"
       ]
     },
     "playwright": {
@@ -35,7 +35,7 @@
         "@modelcontextprotocol/server-github"
       ],
       "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "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"
       }
     }
   }

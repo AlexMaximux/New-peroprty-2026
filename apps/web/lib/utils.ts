@@ -9,6 +9,12 @@ export function poundsToPence(pounds: number | undefined | null): number {
   return Math.round(pounds * 100);
 }
 
+/** Convert stored pence to display pounds */
+export function penceToPounds(pence: number | undefined | null): number {
+  if (pence === undefined || pence === null) return 0;
+  return Math.round(pence / 100);
+}
+
 /** Format pence to GBP display string, e.g. 150000 → "£1,500" */
 export function formatGBP(pence: number | undefined | null): string {
   if (pence === undefined || pence === null) return '—';

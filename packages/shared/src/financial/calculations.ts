@@ -7,6 +7,33 @@
  * Formulas quoted from `docs/new-property-functional-spec.md` § denoted in each JSDoc.
  */
 
+// ── Unit conversion helpers (shared — import by form sections) ────────────────
+// Rule: forms accept human units (£, 0-100%). Convert at submit boundary only.
+
+/** Convert user-typed pounds to integer pence. null/undefined → 0. */
+export function poundsToPence(pounds: number | null | undefined): number {
+  if (pounds == null) return 0;
+  return Math.round(pounds * 100);
+}
+
+/** Convert stored pence to display pounds. null/undefined → 0. */
+export function penceToPounds(pence: number | null | undefined): number {
+  if (pence == null) return 0;
+  return Math.round(pence / 100);
+}
+
+/** Convert 0-100 percentage to 0-1 decimal. null/undefined → 0. */
+export function percentToDecimal(pct: number | null | undefined): number {
+  if (pct == null) return 0;
+  return Math.min(1, Math.max(0, pct / 100));
+}
+
+/** Convert 0-1 decimal to 0-100 percentage (rounded). null/undefined → 0. */
+export function decimalToPercent(decimal: number | null | undefined): number {
+  if (decimal == null) return 0;
+  return Math.round(decimal * 100);
+}
+
 // ── Shared input types ────────────────────────────────────────────────────────
 
 export interface HmoRoomInput {
@@ -152,7 +179,7 @@ export function calcHmoYear1AnnualProfit(
   ongoingAnnualProfitPence: number,
   finderFeePence: number,
 ): number {
-  assertNonNegative(ongoingAnnualProfitPence, 'ongoingAnnualProfitPence');
+  // ongoingAnnualProfitPence CAN be negative (loss scenario)
   assertNonNegative(finderFeePence, 'finderFeePence');
   return Math.round(ongoingAnnualProfitPence - finderFeePence);
 }
@@ -297,9 +324,286 @@ export function calcTotalCostToBuy(params: BuyCostParams): number {
  */
 export function calcRoi(investmentPence: number, annualReturnPence: number): number {
   assertNonNegative(investmentPence, 'investmentPence');
-  assertNonNegative(annualReturnPence, 'annualReturnPence');
+  if (annualReturnPence < 0) {
+    // Negative return produces negative ROI — valid, display as loss
+  } else {
+    assertNonNegative(annualReturnPence, 'annualReturnPence');
+  }
   if (investmentPence === 0) {
-    return annualReturnPence === 0 ? 0 : Infinity;
+    return annualReturnPence === 0 ? 0 : annualReturnPence > 0 ? Infinity : -Infinity;
   }
   return annualReturnPence / investmentPence;
+}
+
+// ── Bill items (shareable helper) ───────────────────────────────────────────
+
+export interface BillItemInput {
+  amountPence: number;
+}
+
+/**
+ * Sum an array of bill-item amounts.
+ * Each bill's amount is in pence. Returns total in pence, rounded.
+ */
+export function calcBillItemsTotal(bills: BillItemInput[]): number {
+  return Math.round(bills.reduce((sum, b) => {
+    assertNonNegative(b.amountPence, 'bill.amountPence');
+    return sum + b.amountPence;
+  }, 0));
+}
+
+// ── SA total costs (rent term + sa revenue combined) ────────────────────────
+
+export interface SaTotalCostsParams {
+  /** Rent to Landlord (from Rent Term section), pence */
+  rentToLandlordPence: number;
+  /** Bills total from bill items, pence */
+  billsTotalPence: number;
+  /** Booking fee (from SA Revenue), pence */
+  bookingFeePence: number;
+  /** Monthly revenue used as base for maintenance %, pence */
+  monthlyRevenuePence: number;
+  /** Maintenance rate as decimal, default 0.05 */
+  maintenanceRate?: number;
+  /** Management cost (from Rent Term — management fee or fixed amount), pence */
+  managementCostPence: number;
+  /** Cleaning cost (from Rent Term), pence */
+  cleaningPence: number;
+  /** Other costs (from SA Revenue), pence */
+  otherCostsPence: number;
+}
+
+/**
+ * SA total monthly operating costs.
+ * Monthly costs = rentToLandlord + bills + bookingFee + maintenance (% of revenue) + management + cleaning + other.
+ * All values in pence. Returns rounded to whole pence.
+ */
+export function calcSaTotalCosts(params: SaTotalCostsParams): number {
+  assertNonNegativeParams(
+    {
+      rentToLandlordPence: params.rentToLandlordPence,
+      billsTotalPence: params.billsTotalPence,
+      bookingFeePence: params.bookingFeePence,
+      monthlyRevenuePence: params.monthlyRevenuePence,
+      managementCostPence: params.managementCostPence,
+      cleaningPence: params.cleaningPence,
+      otherCostsPence: params.otherCostsPence,
+    },
+    'SaTotalCostsParams',
+  );
+  const maintenanceRate = params.maintenanceRate ?? 0.05;
+  if (maintenanceRate < 0 || maintenanceRate > 1) {
+    throw new Error(`maintenanceRate must be in [0, 1], got ${maintenanceRate}`);
+  }
+  const maintenancePence = Math.round(params.monthlyRevenuePence * maintenanceRate);
+
+  return Math.round(
+    params.rentToLandlordPence +
+      params.billsTotalPence +
+      params.bookingFeePence +
+      maintenancePence +
+      params.managementCostPence +
+      params.cleaningPence +
+      params.otherCostsPence,
+  );
+}
+
+/**
+ * SA break-even occupancy = totalMonthlyCosts / (nightlyRate × 30).
+ * This is identical to calcSaBreakEvenOccupancy but is kept as a named
+ * wrapper for conceptual clarity in the summary engine.
+ * Returns decimal (0.65 = 65%). Display layer formats as percentage.
+ */
+export { calcSaBreakEvenOccupancy as calcSaBreakEvenOccupancyRate };
+
+// ── Full scenario summary builders ──────────────────────────────────────────
+
+export interface HmoSummaryInput {
+  rooms: Array<{ monthlyRentPence: number }>;
+  rentToLandlordPence: number;
+  depositPence: number;
+  finderFeePence: number;
+  legalFeesPence?: number;
+  billsPence: number;
+  cleaningPence: number;
+  otherUpfrontPence?: number;
+  managementEnabled: boolean;
+  managementRatePercent: number;
+}
+
+export interface HmoSummaryResult {
+  grossMonthlyIncomePence: number;
+  operatingCostsPence: number;
+  ongoingMonthlyProfitPence: number;
+  ongoingAnnualProfitPence: number;
+  year1AnnualProfitPence: number;
+  year1MonthlyProfitPence: number;
+  moneyNeededInPence: number;
+  year1Roi: number;
+  ongoingRoi: number;
+  managementFeePence: number;
+  finderMonthlyAmortisedPence: number;
+}
+
+/**
+ * Full HMO summary pipeline.
+ *
+ * 1. Gross monthly income = sum of room rents.
+ * 2. Management fee = managementEnabled ? gross × (rate/100) : 0.
+ * 3. Monthly operating costs = rentToLandlord + bills + cleaning + management fee.
+ * 4. Ongoing monthly profit = gross − costs.
+ * 5. Ongoing annual profit = ongoingMonthly × 12.
+ * 6. Year-1 annual profit = ongoing annual − finder fee.
+ * 7. Year-1 monthly profit = Year-1 annual ÷ 12 (derived from annual, so
+ *    monthly × 12 reconciles exactly to annual — no rounding drift).
+ * 8. Money needed in = deposit + 1mo advance rent + finder fee + legal + other.
+ * 9. ROIs = annual profits ÷ money-in.
+ */
+export function calcHmoSummary(input: HmoSummaryInput): HmoSummaryResult {
+  const grossMonthlyIncomePence = calcHmoGrossMonthlyIncome(input.rooms);
+
+  const mgmtRate = input.managementEnabled ? input.managementRatePercent / 100 : 0;
+  const managementFeePence = calcManagementFee(grossMonthlyIncomePence, mgmtRate);
+
+  const operatingCostsPence = calcHmoMonthlyOperatingCosts({
+    rentToLandlordPence: input.rentToLandlordPence,
+    billsPence: input.billsPence,
+    cleaningPence: input.cleaningPence,
+    grossIncomePence: grossMonthlyIncomePence,
+    managementFeeRate: mgmtRate,
+  });
+
+  const ongoingMonthlyProfitPence = calcHmoMonthlyProfit(grossMonthlyIncomePence, operatingCostsPence);
+  const ongoingAnnualProfitPence = Math.round(ongoingMonthlyProfitPence * 12);
+
+  const year1AnnualProfitPence = calcHmoYear1AnnualProfit(ongoingAnnualProfitPence, input.finderFeePence);
+  // Derive year-1 monthly from annual to avoid rounding drift
+  const year1MonthlyProfitPence = Math.round(year1AnnualProfitPence / 12);
+
+  const moneyNeededInPence = calcHmoMoneyNeededIn({
+    depositPence: input.depositPence,
+    finderFeePence: input.finderFeePence,
+    legalFeesPence: input.legalFeesPence ?? 0,
+    rentToLandlordPence: input.rentToLandlordPence,
+    otherCostsPence: input.otherUpfrontPence ?? 0,
+  });
+
+  const year1Roi = calcRoi(moneyNeededInPence, year1AnnualProfitPence);
+  const ongoingRoi = calcRoi(moneyNeededInPence, ongoingAnnualProfitPence);
+  const finderMonthlyAmortisedPence = input.finderFeePence > 0
+    ? Math.round(input.finderFeePence / 12)
+    : 0;
+
+  return {
+    grossMonthlyIncomePence,
+    operatingCostsPence,
+    ongoingMonthlyProfitPence,
+    ongoingAnnualProfitPence,
+    year1AnnualProfitPence,
+    year1MonthlyProfitPence,
+    moneyNeededInPence,
+    year1Roi,
+    ongoingRoi,
+    managementFeePence,
+    finderMonthlyAmortisedPence,
+  };
+}
+
+export interface SaSummaryInput {
+  nightlyRatePence: number;
+  occupancyRate: number;
+  rentToLandlordPence: number;
+  billsTotalPence: number;
+  bookingFeePence: number;
+  maintenanceRate?: number;
+  managementCostPence: number;
+  cleaningPence: number;
+  otherCostsPence: number;
+  // Money-in fields
+  depositPence: number;
+  finderFeePence: number;
+  legalFeesPence?: number;
+  otherUpfrontPence?: number;
+}
+
+export interface SaSummaryResult {
+  monthlyIncomePence: number;
+  yearlyIncomePence: number;
+  totalMonthlyCostsPence: number;
+  monthlyProfitPence: number;
+  yearlyProfitPence: number;
+  breakEvenOccupancy: number;
+  moneyNeededInPence: number;
+  year1Roi: number;
+  ongoingRoi: number;
+  finderMonthlyAmortisedPence: number;
+  maintenancePence: number;
+}
+
+/**
+ * Full SA summary pipeline.
+ *
+ * 1. Monthly income = occupancy × nightly rate × 30.
+ * 2. Yearly income = occupancy × nightly rate × 365.
+ * 3. Total monthly costs = rent + bills + bookingFee + maintenance (% of monthly income)
+ *    + management + cleaning + other.
+ * 4. Monthly profit = income − costs.
+ * 5. Yearly profit = monthly profit × 12.
+ * 6. Break-even occupancy = costs / (nightly rate × 30).
+ * 7. Money needed in = deposit + 1mo advance rent + finder + legal + other.
+ * 8. Year-1 annual profit = yearly profit − finder fee.
+ * 9. Dual ROI: Year-1 = Year-1 annual / money-in, Ongoing = yearly profit / money-in.
+ */
+export function calcSaSummary(input: SaSummaryInput): SaSummaryResult {
+  const monthlyIncomePence = calcSaMonthlyIncome(input.occupancyRate, input.nightlyRatePence);
+  const yearlyIncomePence = calcSaYearlyIncome(input.occupancyRate, input.nightlyRatePence);
+
+  const maintenanceRate = input.maintenanceRate ?? 0.05;
+  const maintenancePence = Math.round(monthlyIncomePence * maintenanceRate);
+
+  const totalMonthlyCostsPence = calcSaTotalCosts({
+    rentToLandlordPence: input.rentToLandlordPence,
+    billsTotalPence: input.billsTotalPence,
+    bookingFeePence: input.bookingFeePence,
+    monthlyRevenuePence: monthlyIncomePence,
+    maintenanceRate,
+    managementCostPence: input.managementCostPence,
+    cleaningPence: input.cleaningPence,
+    otherCostsPence: input.otherCostsPence,
+  });
+
+  const monthlyProfitPence = calcSaProfit(monthlyIncomePence, totalMonthlyCostsPence);
+  const yearlyProfitPence = Math.round(monthlyProfitPence * 12);
+
+  const breakEvenOccupancy = calcSaBreakEvenOccupancy(totalMonthlyCostsPence, input.nightlyRatePence);
+
+  const moneyNeededInPence = calcHmoMoneyNeededIn({
+    depositPence: input.depositPence,
+    finderFeePence: input.finderFeePence,
+    legalFeesPence: input.legalFeesPence ?? 0,
+    rentToLandlordPence: input.rentToLandlordPence,
+    otherCostsPence: input.otherUpfrontPence ?? 0,
+  });
+
+  const year1AnnualProfitPence = calcHmoYear1AnnualProfit(yearlyProfitPence, input.finderFeePence);
+  const year1Roi = calcRoi(moneyNeededInPence, year1AnnualProfitPence);
+  const ongoingRoi = calcRoi(moneyNeededInPence, yearlyProfitPence);
+
+  const finderMonthlyAmortisedPence = input.finderFeePence > 0
+    ? Math.round(input.finderFeePence / 12)
+    : 0;
+
+  return {
+    monthlyIncomePence,
+    yearlyIncomePence,
+    totalMonthlyCostsPence,
+    monthlyProfitPence,
+    yearlyProfitPence,
+    breakEvenOccupancy,
+    moneyNeededInPence,
+    year1Roi,
+    ongoingRoi,
+    finderMonthlyAmortisedPence,
+    maintenancePence,
+  };
 }

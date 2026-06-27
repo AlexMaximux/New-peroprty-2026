@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { NavBar } from '@/components/nav-bar';
+import { MapsClient } from '@/components/maps/maps-client';
 
 export const metadata: Metadata = {
   title: 'PropVest — Private UK Property Investment Marketplace',
@@ -20,8 +21,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="min-h-screen bg-deep-900">
-        <NavBar />
-        <main>{children}</main>
+        <MapsClient>
+          <NavBar />
+          <main>{children}</main>
+        </MapsClient>
       </body>
     </html>
   );

@@ -1,0 +1,15 @@
+CLAUDE-CODE-PROMPT.md
+CLAUDE.local.md
+SETUP-README.md
+apps
+docker-compose.yml
+docs
+list.txt
+node_modules
+package.json
+packages
+pnpm-lock.yaml
+pnpm-workspace.yaml
+scripts
+tsconfig.base.json
+turbo.json

@@ -51,12 +51,27 @@ export const SECTION_DEFS: Record<string, SectionDef> = {
   'refurb-opportunity': { id: 'refurb-opportunity', label: 'Refurbishment' },
   'portfolio-assets': { id: 'portfolio-assets', label: 'Portfolio Assets' },
   'agency-network': { id: 'agency-network', label: 'Agency & Network' },
+  // New wizard sections (Rent to Rent paths)
+  'r2r-address': { id: 'r2r-address', label: 'Address', required: true },
+  'hmo-details': { id: 'hmo-details', label: 'HMO Details', required: true },
+  'rent-term': { id: 'rent-term', label: 'Rent Term', required: true },
+  'hmo-rooms-income': { id: 'hmo-rooms-income', label: 'Room Rents (Income)', required: true },
+  'hmo-summary': { id: 'hmo-summary', label: 'Summary', required: true },
+  'sa-details': { id: 'sa-details', label: 'SA Property Details', required: true },
+  'sa-income': { id: 'sa-income', label: 'Potential Income', required: true },
+  'sa-summary': { id: 'sa-summary', label: 'Summary', required: true },
+  'block-unit-mix': { id: 'block-unit-mix', label: 'Unit Mix', required: true },
+  'block-per-unit': { id: 'block-per-unit', label: 'Per-Unit Details' },
+  'block-summary': { id: 'block-summary', label: 'Summary', required: true },
+  'agency-details': { id: 'agency-details', label: 'Agency Details' },
+  'media': { id: 'media', label: 'Photos & Video' },
+  'summary': { id: 'summary', label: 'Review & Submit' },
 };
 
 // ── Category configuration ────────────────────────────────────────────────────
 
 export const CATEGORY_CONFIG: CategoryConfig[] = [
-  // ── Rent to Rent ──
+  // ── Rent to Rent (wizard rebuilt with per-section schemas) ──
   {
     category: 'RENT_TO_RENT',
     label: 'Rent to Rent',
@@ -65,17 +80,45 @@ export const CATEGORY_CONFIG: CategoryConfig[] = [
       {
         strategy: 'HMO',
         label: 'HMO (House in Multiple Occupation)',
-        sections: ['base-info', 'rent-terms', 'hmo-rooms', 'hmo-outputs', 'agency-network'],
+        sections: [
+          'r2r-address',
+          'hmo-details',
+          'rent-term',
+          'hmo-rooms-income',
+          'agency-details',
+          'media',
+          'hmo-summary',
+        ],
       },
       {
         strategy: 'SA',
         label: 'Serviced Accommodation',
-        sections: ['base-info', 'rent-terms', 'sa-revenue', 'sa-costs', 'sa-outputs', 'agency-network'],
+        sections: [
+          'r2r-address',
+          'sa-details',
+          'rent-term',
+          'sa-income',
+          'agency-details',
+          'media',
+          'sa-summary',
+        ],
+      },
+      {
+        strategy: 'BLOCK_OF_PROPERTY',
+        label: 'Block of Property',
+        sections: [
+          'r2r-address',
+          'block-unit-mix',
+          'block-per-unit',
+          'agency-details',
+          'media',
+          'block-summary',
+        ],
       },
       {
         strategy: 'SINGLE_LET',
         label: 'Single Let / Buy to Let',
-        sections: ['base-info', 'rent-terms', 'agency-network'],
+        sections: ['r2r-address', 'rent-term', 'agency-details', 'media', 'summary'],
       },
     ],
   },
@@ -157,6 +200,19 @@ export const CATEGORY_CONFIG: CategoryConfig[] = [
         ],
       },
       {
+        strategy: 'CASH_PURCHASE',
+        label: 'Cash Purchase',
+        sections: [
+          'base-info',
+          'sell-ownership',
+          'sell-pricing',
+          'sell-cost-to-buy',
+          'sell-finance',
+          'sell-add-value',
+          'agency-network',
+        ],
+      },
+      {
         strategy: 'FLAT_CONVERSION',
         label: 'Flat Conversion',
         sections: ['base-info', 'sell-ownership', 'sell-pricing', 'sell-cost-to-buy', 'sell-finance', 'sell-add-value', 'agency-network'],
@@ -203,12 +259,28 @@ export const CATEGORY_CONFIG: CategoryConfig[] = [
     strategies: [],
   },
 
-  // ── Commercial (V1 scaffold — no strategy or sections wired yet) ──
+  // ── Commercial (V1 scaffold) ──
   {
     category: 'COMMERCIAL',
     label: 'Commercial',
     categorySections: [],
-    strategies: [],
+    strategies: [
+      {
+        strategy: 'HOTEL',
+        label: 'Hotel',
+        sections: ['base-info', 'agency-network'],
+      },
+      {
+        strategy: 'SHOP',
+        label: 'Shop',
+        sections: ['base-info', 'agency-network'],
+      },
+      {
+        strategy: 'MIXED_USE',
+        label: 'Mixed Use',
+        sections: ['base-info', 'agency-network'],
+      },
+    ],
   },
 ];
 
@@ -239,4 +311,12 @@ export function getSections(category: string, strategy?: string | null): string[
 export function isCategoryLevel(category: string): boolean {
   const cat = CATEGORY_CONFIG.find((c) => c.category === category);
   return cat ? cat.strategies.length === 0 : false;
+}
+
+/**
+ * Get all available strategies for a given category.
+ */
+export function getStrategies(category: string): StrategyConfig[] {
+  const cat = CATEGORY_CONFIG.find((c) => c.category === category);
+  return cat?.strategies ?? [];
 }

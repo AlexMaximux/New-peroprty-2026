@@ -57,6 +57,7 @@ enum ListingStrategy {
   EXTENSION
   LOFT_CONVERSION
   BMV
+  BLOCK_OF_PROPERTY
 }
 
 enum ListingStatus {

@@ -7,12 +7,21 @@ export {
   calcSaYearlyIncome,
   calcSaBreakEvenOccupancy,
   calcSaProfit,
+  calcSaTotalCosts,
   calcMonthlyMortgageCost,
   calcManagementFee,
   calcDeposit,
   calcTotalCostToBuy,
   calcRoi,
   calcHmoYear1AnnualProfit,
+  calcBillItemsTotal,
+  calcHmoSummary,
+  calcSaSummary,
+  // Unit conversion helpers
+  poundsToPence,
+  penceToPounds,
+  percentToDecimal,
+  decimalToPercent,
 } from './calculations';
 
 export type {
@@ -20,4 +29,10 @@ export type {
   UpfrontCostParams,
   HmoMonthlyOperatingCostParams,
   BuyCostParams,
+  BillItemInput,
+  SaTotalCostsParams,
+  HmoSummaryInput,
+  HmoSummaryResult,
+  SaSummaryInput,
+  SaSummaryResult,
 } from './calculations';

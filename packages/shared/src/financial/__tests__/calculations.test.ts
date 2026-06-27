@@ -8,14 +8,29 @@ import {
   calcSaYearlyIncome,
   calcSaBreakEvenOccupancy,
   calcSaProfit,
+  calcSaTotalCosts,
   calcMonthlyMortgageCost,
   calcManagementFee,
   calcDeposit,
   calcTotalCostToBuy,
   calcRoi,
   calcHmoYear1AnnualProfit,
+  calcBillItemsTotal,
+  calcHmoSummary,
+  calcSaSummary,
+  poundsToPence,
+  penceToPounds,
+  percentToDecimal,
+  decimalToPercent,
 } from '../calculations';
-import type { HmoRoomInput, UpfrontCostParams, HmoMonthlyOperatingCostParams, BuyCostParams } from '../calculations';
+import type {
+  HmoRoomInput,
+  UpfrontCostParams,
+  HmoMonthlyOperatingCostParams,
+  BuyCostParams,
+  SaTotalCostsParams,
+  BillItemInput,
+} from '../calculations';
 
 // ── calcHmoGrossMonthlyIncome ─────────────────────────────────────────────────
 
@@ -470,6 +485,10 @@ describe('calcRoi', () => {
     expect(calcRoi(0, 1000)).toBe(Infinity);
   });
 
+  it('returns -Infinity when investment is 0 and return < 0', () => {
+    expect(calcRoi(0, -1000)).toBe(-Infinity);
+  });
+
   it('returns 0 when both are 0', () => {
     expect(calcRoi(0, 0)).toBe(0);
   });
@@ -484,8 +503,8 @@ describe('calcRoi', () => {
     expect(() => calcRoi(-1, 1000)).toThrow('non-negative');
   });
 
-  it('throws on negative return', () => {
-    expect(() => calcRoi(1000, -1)).toThrow('non-negative');
+  it('returns negative ROI when return is negative', () => {
+    expect(calcRoi(1000, -1)).toBe(-0.001);
   });
 });
 
@@ -566,8 +585,8 @@ describe('calcHmoYear1AnnualProfit', () => {
     expect(calcHmoYear1AnnualProfit(0, 0)).toBe(0);
   });
 
-  it('throws on negative ongoing annual', () => {
-    expect(() => calcHmoYear1AnnualProfit(-1, 0)).toThrow('non-negative');
+  it('allows negative ongoing annual (loss scenario)', () => {
+    expect(calcHmoYear1AnnualProfit(-1, 0)).toBe(-1);
   });
 
   it('throws on negative finder fee', () => {
@@ -639,4 +658,370 @@ describe('HMO full summary scenario (finder amortised, dual ROI)', () => {
     const ongoingRoi = calcRoi(moneyNeededIn, ongoingAnnualProfit);
     expect(ongoingRoi).toBe(2.25); // 225%
   });
+});
+
+// ── calcBillItemsTotal ────────────────────────────────────────────────────────
+
+describe('calcBillItemsTotal', () => {
+  it('sums multiple bill items in pence', () => {
+    const bills: BillItemInput[] = [
+      { amountPence: 5000 },
+      { amountPence: 3000 },
+      { amountPence: 2000 },
+    ];
+    expect(calcBillItemsTotal(bills)).toBe(10000);
+  });
+
+  it('returns 0 for empty array', () => {
+    expect(calcBillItemsTotal([])).toBe(0);
+  });
+
+  it('rounds fractional total', () => {
+    const bills: BillItemInput[] = [
+      { amountPence: 3333 },
+      { amountPence: 3333 },
+      { amountPence: 3334 },
+    ];
+    expect(calcBillItemsTotal(bills)).toBe(10000);
+  });
+
+  it('throws on negative amount', () => {
+    expect(() => calcBillItemsTotal([{ amountPence: -100 }])).toThrow('non-negative');
+  });
+});
+
+// ── calcSaTotalCosts ──────────────────────────────────────────────────────────
+
+describe('calcSaTotalCosts', () => {
+  it('sums all cost components including maintenance % of revenue', () => {
+    const params: SaTotalCostsParams = {
+      rentToLandlordPence: 150000,
+      billsTotalPence: 30000,
+      bookingFeePence: 20000,
+      monthlyRevenuePence: 195000,
+      maintenanceRate: 0.05, // → 9750
+      managementCostPence: 25000,
+      cleaningPence: 15000,
+      otherCostsPence: 10000,
+    };
+    // 150000 + 30000 + 20000 + 9750 + 25000 + 15000 + 10000 = 259750
+    expect(calcSaTotalCosts(params)).toBe(259750);
+  });
+
+  it('uses default maintenance rate of 0.05 when omitted', () => {
+    const params: SaTotalCostsParams = {
+      rentToLandlordPence: 100000,
+      billsTotalPence: 0,
+      bookingFeePence: 0,
+      monthlyRevenuePence: 100000,
+      managementCostPence: 0,
+      cleaningPence: 0,
+      otherCostsPence: 0,
+    };
+    // 100000 + 0 + 0 + 5000 + 0 + 0 + 0 = 105000
+    expect(calcSaTotalCosts(params)).toBe(105000);
+  });
+
+  it('returns 0 when all inputs are 0', () => {
+    expect(calcSaTotalCosts({
+      rentToLandlordPence: 0,
+      billsTotalPence: 0,
+      bookingFeePence: 0,
+      monthlyRevenuePence: 0,
+      managementCostPence: 0,
+      cleaningPence: 0,
+      otherCostsPence: 0,
+    })).toBe(0);
+  });
+
+  it('rounds maintenance fraction to whole pence', () => {
+    const params: SaTotalCostsParams = {
+      rentToLandlordPence: 100000,
+      billsTotalPence: 0,
+      bookingFeePence: 0,
+      monthlyRevenuePence: 33333,
+      maintenanceRate: 0.05, // → 1666.65 → Math.round = 1667
+      managementCostPence: 0,
+      cleaningPence: 0,
+      otherCostsPence: 0,
+    };
+    expect(calcSaTotalCosts(params)).toBe(101667);
+  });
+
+  it('throws on negative rent', () => {
+    expect(() => calcSaTotalCosts({
+      rentToLandlordPence: -1,
+      billsTotalPence: 0,
+      bookingFeePence: 0,
+      monthlyRevenuePence: 0,
+      managementCostPence: 0,
+      cleaningPence: 0,
+      otherCostsPence: 0,
+    })).toThrow('non-negative');
+  });
+
+  it('throws on maintenanceRate > 1', () => {
+    expect(() => calcSaTotalCosts({
+      rentToLandlordPence: 1000,
+      billsTotalPence: 0,
+      bookingFeePence: 0,
+      monthlyRevenuePence: 1000,
+      maintenanceRate: 1.5,
+      managementCostPence: 0,
+      cleaningPence: 0,
+      otherCostsPence: 0,
+    })).toThrow('must be in [0, 1]');
+  });
+});
+
+// ── calcHmoSummary (full pipeline aggregator) ─────────────────────────────────
+
+describe('calcHmoSummary', () => {
+  it('computes full HMO summary from form inputs in pence', () => {
+    const result = calcHmoSummary({
+      rooms: [
+        { monthlyRentPence: 50000 },
+        { monthlyRentPence: 60000 },
+        { monthlyRentPence: 45000 },
+      ],
+      rentToLandlordPence: 80000,
+      depositPence: 15000,
+      finderFeePence: 10000,
+      legalFeesPence: 5000,
+      billsPence: 20000,
+      cleaningPence: 10000,
+      managementEnabled: true,
+      managementRatePercent: 10,
+    });
+
+    // Gross: £500 + £600 + £450 = £1,550
+    expect(result.grossMonthlyIncomePence).toBe(155000);
+
+    // Op costs: 80000 + 20000 + 10000 + 15500 (mgmt 10%) = 125500
+    expect(result.operatingCostsPence).toBe(125500);
+
+    // Ongoing monthly profit: 155000 - 125500 = 29500
+    expect(result.ongoingMonthlyProfitPence).toBe(29500);
+
+    // Ongoing annual: 29500 * 12 = 354000
+    expect(result.ongoingAnnualProfitPence).toBe(354000);
+
+    // Year-1 annual: 354000 - 10000 = 344000
+    expect(result.year1AnnualProfitPence).toBe(344000);
+
+    // Year-1 monthly (derived from annual): 344000 / 12 = 28667
+    expect(result.year1MonthlyProfitPence).toBe(28667);
+
+    // Money needed: 15000 + 10000 + 5000 + 80000 = 110000
+    expect(result.moneyNeededInPence).toBe(110000);
+
+    // Finder amortised: 10000 / 12 = 833
+    expect(result.finderMonthlyAmortisedPence).toBe(833);
+
+    // ROIs
+    expect(result.year1Roi).toBeCloseTo(3.1273, 3);
+    expect(result.ongoingRoi).toBeCloseTo(3.2182, 3);
+  });
+
+  it('handles zero rooms (no income)', () => {
+    const result = calcHmoSummary({
+      rooms: [],
+      rentToLandlordPence: 100000,
+      depositPence: 50000,
+      finderFeePence: 0,
+      billsPence: 0,
+      cleaningPence: 0,
+      managementEnabled: true,
+      managementRatePercent: 10,
+    });
+    expect(result.grossMonthlyIncomePence).toBe(0);
+    expect(result.ongoingMonthlyProfitPence).toBe(-100000);
+    expect(result.moneyNeededInPence).toBe(150000);
+    expect(result.year1Roi).toBe(-8);
+    expect(result.ongoingRoi).toBe(-8);
+  });
+
+  it('handles management disabled', () => {
+    const result = calcHmoSummary({
+      rooms: [{ monthlyRentPence: 100000 }],
+      rentToLandlordPence: 50000,
+      depositPence: 0,
+      finderFeePence: 0,
+      billsPence: 10000,
+      cleaningPence: 5000,
+      managementEnabled: false,
+      managementRatePercent: 10,
+    });
+    expect(result.managementFeePence).toBe(0);
+    expect(result.operatingCostsPence).toBe(65000); // 50000 + 10000 + 5000 + 0
+    expect(result.ongoingMonthlyProfitPence).toBe(35000);
+  });
+
+  it('handles finder fee > annual profit (year-1 loss)', () => {
+    const result = calcHmoSummary({
+      rooms: [{ monthlyRentPence: 100000 }],
+      rentToLandlordPence: 80000,
+      depositPence: 0,
+      finderFeePence: 500000,
+      billsPence: 0,
+      cleaningPence: 0,
+      managementEnabled: false,
+      managementRatePercent: 10,
+    });
+    // Ongoing monthly profit = 100000 - 80000 = 20000
+    // Ongoing annual = 240000
+    // Year-1 annual = 240000 - 500000 = -260000
+    expect(result.ongoingAnnualProfitPence).toBe(240000);
+    expect(result.year1AnnualProfitPence).toBe(-260000);
+    expect(result.year1Roi).toBeLessThan(0);
+  });
+});
+
+// ── calcSaSummary (full pipeline aggregator) ─────────────────────────────────
+
+describe('calcSaSummary', () => {
+  // £100/night, 65% occupancy → £1,950/mo, £23,725/yr
+  // Deposit £2,000, finder £1,000, legal £500, 1mo advance rent £1,200
+  const result = calcSaSummary({
+    nightlyRatePence: 10000,
+    occupancyRate: 0.65,
+    rentToLandlordPence: 120000,
+    billsTotalPence: 30000,
+    bookingFeePence: 20000,
+    maintenanceRate: 0.05,
+    managementCostPence: 25000,
+    cleaningPence: 15000,
+    otherCostsPence: 10000,
+    depositPence: 200000,
+    finderFeePence: 100000,
+    legalFeesPence: 50000,
+    otherUpfrontPence: 0,
+  });
+
+  // Monthly income = 0.65 × 10000 × 30 = 195000
+  it('computes monthly income', () => {
+    expect(result.monthlyIncomePence).toBe(195000);
+  });
+
+  // Yearly income = 0.65 × 10000 × 365 = 2372500
+  it('computes yearly income', () => {
+    expect(result.yearlyIncomePence).toBe(2372500);
+  });
+
+  // Total costs = 120000 + 30000 + 20000 + 9750 (5% of 195000) + 25000 + 15000 + 10000 = 229750
+  it('computes total monthly costs including 5% maintenance', () => {
+    expect(result.totalMonthlyCostsPence).toBe(229750);
+  });
+
+  // Profit = 195000 - 229750 = -34750
+  it('computes monthly profit', () => {
+    expect(result.monthlyProfitPence).toBe(-34750);
+  });
+
+  // Yearly profit = -34750 * 12 = -417000
+  it('computes yearly profit', () => {
+    expect(result.yearlyProfitPence).toBe(-417000);
+  });
+
+  // Break-even = 229750 / (10000 × 30) = 0.7658...
+  it('computes break-even occupancy', () => {
+    expect(result.breakEvenOccupancy).toBeCloseTo(0.7658, 3);
+  });
+
+  // Money-in = deposit £2,000 + 1mo advance £1,200 + finder £1,000 + legal £500 = £4,700
+  it('computes money needed in', () => {
+    expect(result.moneyNeededInPence).toBe(470000);
+  });
+
+  // Year-1 annual = yearly profit (−417000) − finder (100000) = −517000
+  // Ongoing ROI = −417000 / 470000 = −0.8872...
+  it('computes ongoing ROI', () => {
+    expect(result.ongoingRoi).toBeCloseTo(-0.8872, 3);
+  });
+
+  it('computes maintenance pence amount explicitly', () => {
+    expect(result.maintenancePence).toBe(9750);
+  });
+
+  it('handles zero revenue scenario', () => {
+    const r = calcSaSummary({
+      nightlyRatePence: 0,
+      occupancyRate: 0,
+      rentToLandlordPence: 0,
+      billsTotalPence: 0,
+      bookingFeePence: 0,
+      managementCostPence: 0,
+      cleaningPence: 0,
+      otherCostsPence: 0,
+      depositPence: 0,
+      finderFeePence: 0,
+    });
+    expect(r.monthlyIncomePence).toBe(0);
+    expect(r.totalMonthlyCostsPence).toBe(0);
+    expect(r.monthlyProfitPence).toBe(0);
+    expect(r.breakEvenOccupancy).toBe(0);
+    expect(r.moneyNeededInPence).toBe(0);
+  });
+
+  it('handles highly profitable scenario with 0 costs', () => {
+    const r = calcSaSummary({
+      nightlyRatePence: 20000,
+      occupancyRate: 0.80,
+      rentToLandlordPence: 0,
+      billsTotalPence: 0,
+      bookingFeePence: 0,
+      managementCostPence: 0,
+      cleaningPence: 0,
+      otherCostsPence: 0,
+      depositPence: 500000,
+      finderFeePence: 0,
+    });
+    // Income = 0.80 × 20000 × 30 = 480000
+    // Maintenance = 0.05 × 480000 = 24000
+    // Total costs = 24000 (only maintenance)
+    expect(r.monthlyIncomePence).toBe(480000);
+    expect(r.totalMonthlyCostsPence).toBe(24000);
+    expect(r.monthlyProfitPence).toBe(456000);
+    expect(r.breakEvenOccupancy).toBe(0.04); // 24000 / (20000 × 30)
+    // Money-in = deposit £5,000
+    expect(r.moneyNeededInPence).toBe(500000);
+    // Ongoing ROI = 5472000 / 500000 = 10.944
+    expect(r.ongoingRoi).toBeCloseTo(10.944, 2);
+  });
+});
+
+// ── Unit conversion helpers (£↔pence, %↔decimal round-trip) ─────────────
+
+describe('poundsToPence / penceToPounds round-trip', () => {
+  it('£150 → 15000 pence', () => { expect(poundsToPence(150)).toBe(15000); });
+  it('15000 pence → £150', () => { expect(penceToPounds(15000)).toBe(150); });
+  it('£0 → 0 pence', () => { expect(poundsToPence(0)).toBe(0); });
+  it('0 pence → £0', () => { expect(penceToPounds(0)).toBe(0); });
+  it('null → 0', () => { expect(poundsToPence(null)).toBe(0); expect(penceToPounds(null)).toBe(0); });
+  it('undefined → 0', () => { expect(poundsToPence(undefined)).toBe(0); expect(penceToPounds(undefined)).toBe(0); });
+  it('£150.50 → 15050 pence (handles decimal)', () => { expect(poundsToPence(150.50)).toBe(15050); });
+  it('round-trip: £ -> pence -> £', () => {
+    const orig = 150;
+    const pence = poundsToPence(orig);
+    expect(penceToPounds(pence)).toBe(orig);
+  });
+});
+
+describe('percentToDecimal / decimalToPercent round-trip', () => {
+  it('70% → 0.70', () => { expect(percentToDecimal(70)).toBe(0.70); });
+  it('0.70 → 70%', () => { expect(decimalToPercent(0.70)).toBe(70); });
+  it('5% → 0.05', () => { expect(percentToDecimal(5)).toBe(0.05); });
+  it('0.05 → 5%', () => { expect(decimalToPercent(0.05)).toBe(5); });
+  it('0% → 0', () => { expect(percentToDecimal(0)).toBe(0); expect(decimalToPercent(0)).toBe(0); });
+  it('100% → 1.0', () => { expect(percentToDecimal(100)).toBe(1.0); });
+  it('1.0 → 100%', () => { expect(decimalToPercent(1.0)).toBe(100); });
+  it('null → 0', () => { expect(percentToDecimal(null)).toBe(0); expect(decimalToPercent(null)).toBe(0); });
+  it('undefined → 0', () => { expect(percentToDecimal(undefined)).toBe(0); expect(decimalToPercent(undefined)).toBe(0); });
+  it('round-trip: 70% → decimal → 70%', () => {
+    const orig = 70;
+    const decimal = percentToDecimal(orig);
+    expect(decimalToPercent(decimal)).toBe(orig);
+  });
+  it('clamps > 100% to 1.0', () => { expect(percentToDecimal(150)).toBe(1.0); });
+  it('clamps < 0% to 0', () => { expect(percentToDecimal(-10)).toBe(0); });
 });

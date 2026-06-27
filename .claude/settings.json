@@ -45,6 +45,7 @@
   "enableAllProjectMcpServers": false,
   "enabledMcpjsonServers": [
     "postgres",
+    "filesystem",
     "playwright"
   ]
 }
