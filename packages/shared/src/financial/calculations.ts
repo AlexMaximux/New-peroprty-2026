@@ -530,8 +530,10 @@ export interface SaSummaryResult {
   monthlyIncomePence: number;
   yearlyIncomePence: number;
   totalMonthlyCostsPence: number;
-  monthlyProfitPence: number;
-  yearlyProfitPence: number;
+  ongoingMonthlyProfitPence: number;
+  ongoingAnnualProfitPence: number;
+  year1MonthlyProfitPence: number;
+  year1AnnualProfitPence: number;
   breakEvenOccupancy: number;
   moneyNeededInPence: number;
   year1Roi: number;
@@ -545,14 +547,16 @@ export interface SaSummaryResult {
  *
  * 1. Monthly income = occupancy × nightly rate × 30.
  * 2. Yearly income = occupancy × nightly rate × 365.
- * 3. Total monthly costs = rent + bills + bookingFee + maintenance (% of monthly income)
- *    + management + cleaning + other.
- * 4. Monthly profit = income − costs.
- * 5. Yearly profit = monthly profit × 12.
- * 6. Break-even occupancy = costs / (nightly rate × 30).
- * 7. Money needed in = deposit + 1mo advance rent + finder + legal + other.
- * 8. Year-1 annual profit = yearly profit − finder fee.
- * 9. Dual ROI: Year-1 = Year-1 annual / money-in, Ongoing = yearly profit / money-in.
+ * 3. Ongoing monthly costs = rent + bills + bookingFee + maintenance (% of monthly income)
+ *    + management + cleaning + other (NO sourcing/finder fee).
+ * 4. Year-1 monthly costs = ongoing costs + sourcingPerMonth (finderFee ÷ 12).
+ * 5. Ongoing monthly profit = income − ongoing costs.
+ * 6. Year-1 monthly profit = income − Year-1 costs (derived via annual/12).
+ * 7. Ongoing annual profit = ongoing monthly × 12.
+ * 8. Year-1 annual profit = Year-1 monthly × 12 (no finder fee in ongoing).
+ * 9. Break-even occupancy = ongoing costs / (nightly rate × 30).
+ * 10. Money needed in = deposit + 1mo advance rent + finder + legal + other.
+ * 11. ROIs = annual profits ÷ money-in.
  */
 export function calcSaSummary(input: SaSummaryInput): SaSummaryResult {
   const monthlyIncomePence = calcSaMonthlyIncome(input.occupancyRate, input.nightlyRatePence);
@@ -561,7 +565,8 @@ export function calcSaSummary(input: SaSummaryInput): SaSummaryResult {
   const maintenanceRate = input.maintenanceRate ?? 0.05;
   const maintenancePence = Math.round(monthlyIncomePence * maintenanceRate);
 
-  const totalMonthlyCostsPence = calcSaTotalCosts({
+  // Ongoing costs (no finder fee)
+  const ongoingMonthlyCostsPence = calcSaTotalCosts({
     rentToLandlordPence: input.rentToLandlordPence,
     billsTotalPence: input.billsTotalPence,
     bookingFeePence: input.bookingFeePence,
@@ -572,10 +577,20 @@ export function calcSaSummary(input: SaSummaryInput): SaSummaryResult {
     otherCostsPence: input.otherCostsPence,
   });
 
-  const monthlyProfitPence = calcSaProfit(monthlyIncomePence, totalMonthlyCostsPence);
-  const yearlyProfitPence = Math.round(monthlyProfitPence * 12);
+  // Year-1 costs = ongoing + sourcingPerMonth (finderFee ÷ 12)
+  const sourcingPerMonthPence = input.finderFeePence > 0
+    ? Math.round(input.finderFeePence / 12)
+    : 0;
+  const year1MonthlyCostsPence = ongoingMonthlyCostsPence + sourcingPerMonthPence;
 
-  const breakEvenOccupancy = calcSaBreakEvenOccupancy(totalMonthlyCostsPence, input.nightlyRatePence);
+  const ongoingMonthlyProfitPence = calcSaProfit(monthlyIncomePence, ongoingMonthlyCostsPence);
+  const ongoingAnnualProfitPence = Math.round(ongoingMonthlyProfitPence * 12);
+
+  // Year-1 monthly derived from Year-1 costs to avoid rounding drift
+  const year1MonthlyProfitPence = calcSaProfit(monthlyIncomePence, year1MonthlyCostsPence);
+  const year1AnnualProfitPence = Math.round(year1MonthlyProfitPence * 12);
+
+  const breakEvenOccupancy = calcSaBreakEvenOccupancy(ongoingMonthlyCostsPence, input.nightlyRatePence);
 
   const moneyNeededInPence = calcHmoMoneyNeededIn({
     depositPence: input.depositPence,
@@ -585,20 +600,19 @@ export function calcSaSummary(input: SaSummaryInput): SaSummaryResult {
     otherCostsPence: input.otherUpfrontPence ?? 0,
   });
 
-  const year1AnnualProfitPence = calcHmoYear1AnnualProfit(yearlyProfitPence, input.finderFeePence);
   const year1Roi = calcRoi(moneyNeededInPence, year1AnnualProfitPence);
-  const ongoingRoi = calcRoi(moneyNeededInPence, yearlyProfitPence);
+  const ongoingRoi = calcRoi(moneyNeededInPence, ongoingAnnualProfitPence);
 
-  const finderMonthlyAmortisedPence = input.finderFeePence > 0
-    ? Math.round(input.finderFeePence / 12)
-    : 0;
+  const finderMonthlyAmortisedPence = sourcingPerMonthPence;
 
   return {
     monthlyIncomePence,
     yearlyIncomePence,
-    totalMonthlyCostsPence,
-    monthlyProfitPence,
-    yearlyProfitPence,
+    totalMonthlyCostsPence: ongoingMonthlyCostsPence,
+    ongoingMonthlyProfitPence,
+    ongoingAnnualProfitPence,
+    year1MonthlyProfitPence,
+    year1AnnualProfitPence,
     breakEvenOccupancy,
     moneyNeededInPence,
     year1Roi,
