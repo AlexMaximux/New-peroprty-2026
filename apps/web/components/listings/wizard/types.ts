@@ -15,6 +15,10 @@ export const ALL_WIZARD_PATHS: WizardPath[] = [
   { category: 'SELL_PROPERTY', strategy: 'ADD_BEDROOM' },
   { category: 'SELL_PROPERTY', strategy: 'EXTENSION' },
   { category: 'SELL_PROPERTY', strategy: 'LOFT_CONVERSION' },
+  // Category-level flows (no strategy)
+  { category: 'DEVELOPMENT_OPPORTUNITY', strategy: null },
+  { category: 'REFURB_OPPORTUNITY', strategy: null },
+  { category: 'PORTFOLIO', strategy: null },
 ];
 
 export type WizardPath =
@@ -30,7 +34,11 @@ export type WizardPath =
   | { category: 'SELL_PROPERTY'; strategy: 'FLAT_CONVERSION' }
   | { category: 'SELL_PROPERTY'; strategy: 'ADD_BEDROOM' }
   | { category: 'SELL_PROPERTY'; strategy: 'EXTENSION' }
-  | { category: 'SELL_PROPERTY'; strategy: 'LOFT_CONVERSION' };
+  | { category: 'SELL_PROPERTY'; strategy: 'LOFT_CONVERSION' }
+  // Category-level flows
+  | { category: 'DEVELOPMENT_OPPORTUNITY'; strategy: null }
+  | { category: 'REFURB_OPPORTUNITY'; strategy: null }
+  | { category: 'PORTFOLIO'; strategy: null };
 
 // ── Section IDs ────────────────────────────────────────────────────────────
 
@@ -55,7 +63,11 @@ export type SectionId =
   | 'sell-cost-to-buy'
   | 'sell-finance'
   | 'sell-add-value'
-  | 'sell-summary';
+  | 'sell-summary'
+  // Category-level flows
+  | 'dev-opportunity'
+  | 'refurb-opportunity'
+  | 'portfolio-assets';
 
 // ── Step types ─────────────────────────────────────────────────────────────
 
@@ -196,10 +208,32 @@ export const PATH_SECTIONS: Record<string, SectionId[]> = {
     'media',
     'sell-summary',
   ],
+  // ── Category-level flows ──
+  DEVELOPMENT_OPPORTUNITY_NO_STRATEGY: [
+    'r2r-address',
+    'dev-opportunity',
+    'sell-cost-to-buy',
+    'agency-details',
+    'media',
+  ],
+  REFURB_OPPORTUNITY_NO_STRATEGY: [
+    'r2r-address',
+    'refurb-opportunity',
+    'sell-pricing',
+    'sell-cost-to-buy',
+    'agency-details',
+    'media',
+  ],
+  PORTFOLIO_NO_STRATEGY: [
+    'r2r-address',
+    'portfolio-assets',
+    'agency-details',
+    'media',
+  ],
 };
 
 export function pathKey(path: WizardPath): string {
-  return `${path.category}_${path.strategy}`;
+  return `${path.category}_${path.strategy ?? 'NO_STRATEGY'}`;
 }
 
 export function getSectionIds(path: WizardPath): SectionId[] {
@@ -211,7 +245,9 @@ export function buildSteps(path: WizardPath | null): WizardStep[] {
   if (!path) return [{ kind: 'category-select' }, { kind: 'strategy-select' }];
 
   const sections = getSectionIds(path);
-  const steps: WizardStep[] = [{ kind: 'category-select' }, { kind: 'strategy-select' }];
+  const isCategoryLevel = path.strategy === null;
+  const steps: WizardStep[] = [{ kind: 'category-select' }];
+  if (!isCategoryLevel) steps.push({ kind: 'strategy-select' });
   for (const s of sections) {
     steps.push({ kind: 'section', sectionId: s });
   }
@@ -247,12 +283,11 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
       if (!sections && process.env.NODE_ENV === 'development') {
         console.error(`[Wizard] No PATH_SECTIONS entry for key "${key}". Check types.ts PATH_SECTIONS.`);
       }
-      const steps = buildSteps(action.path);
       return {
         ...state,
         path: action.path,
-        steps,
-        currentStepIndex: 1, // skip category-select, land on strategy-select
+        steps: buildSteps(action.path),
+        currentStepIndex: sections?.length === 0 ? 1 : 2, // skip to first section if none, otherwise to after strategy-select
         sectionData: {},
         error: null,
       };

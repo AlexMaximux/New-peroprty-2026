@@ -10,10 +10,21 @@ interface Props {
   onBack: () => void;
 }
 
+function poundsToPence(v: number | undefined | null): number {
+  return v != null ? Math.round(v * 100) : 0;
+}
+
+function penceToPounds(v: number | undefined | null): number {
+  return v != null ? Math.round(v / 100) : 0;
+}
+
 export default function SellOwnershipSection({ initialData, onNext, onBack }: Props) {
   const form = useForm<any>({
     resolver: zodResolver(sellOwnershipSectionSchema) as any,
-    defaultValues: initialData ?? {
+    defaultValues: initialData ? {
+      ...initialData,
+      currentRentPence: penceToPounds(initialData.currentRentPence),
+    } : {
       ownershipType: 'FREEHOLD',
       leaseExpiryDate: '',
       currentRentPence: '',
@@ -27,7 +38,7 @@ export default function SellOwnershipSection({ initialData, onNext, onBack }: Pr
   const onSubmit = (raw: any) => {
     const data: any = {
       ...raw,
-      currentRentPence: raw.currentRentPence && raw.currentRentPence !== '' ? Math.round(Number(raw.currentRentPence) * 100) : undefined,
+      currentRentPence: raw.currentRentPence ? poundsToPence(raw.currentRentPence) : undefined,
     };
     onNext(data);
   };
@@ -54,7 +65,7 @@ export default function SellOwnershipSection({ initialData, onNext, onBack }: Pr
 
       <div>
         <label className="block text-sm text-slate-300 mb-1">Current Rent (£/mo)</label>
-        <input type="number" min={0} {...register('currentRentPence', { valueAsNumber: true })} className="input-field w-full max-w-[200px]" placeholder="1000" />
+        <input type="number" min={0} step={0.01} {...register('currentRentPence', { valueAsNumber: true })} className="input-field w-full max-w-[200px]" placeholder="1000" />
       </div>
 
       <div className="flex justify-between pt-4 border-t border-deep-600">

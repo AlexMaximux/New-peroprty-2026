@@ -25,6 +25,9 @@ describe('wizard path → section mapping integrity', () => {
       'SELL_PROPERTY_SINGLE_LET', 'SELL_PROPERTY_HMO', 'SELL_PROPERTY_HIGH_ROI',
       'SELL_PROPERTY_CASH_PURCHASE', 'SELL_PROPERTY_FLAT_CONVERSION',
       'SELL_PROPERTY_ADD_BEDROOM', 'SELL_PROPERTY_EXTENSION', 'SELL_PROPERTY_LOFT_CONVERSION',
+      'DEVELOPMENT_OPPORTUNITY_NO_STRATEGY',
+      'REFURB_OPPORTUNITY_NO_STRATEGY',
+      'PORTFOLIO_NO_STRATEGY',
     ];
     for (const k of keys) {
       expect(expected, `key "${k}" not in expected set`).toContain(k);
