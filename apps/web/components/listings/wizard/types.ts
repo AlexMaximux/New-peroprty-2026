@@ -2,19 +2,40 @@
 
 /** All known wizard paths — test asserts every one maps to a non-empty section list. */
 export const ALL_WIZARD_PATHS: WizardPath[] = [
+  // Rent to Rent
   { category: 'RENT_TO_RENT', strategy: 'HMO' },
   { category: 'RENT_TO_RENT', strategy: 'SA' },
   { category: 'RENT_TO_RENT', strategy: 'BLOCK_OF_PROPERTY' },
+  // Sell Property
+  { category: 'SELL_PROPERTY', strategy: 'SINGLE_LET' },
+  { category: 'SELL_PROPERTY', strategy: 'HMO' },
+  { category: 'SELL_PROPERTY', strategy: 'HIGH_ROI' },
+  { category: 'SELL_PROPERTY', strategy: 'CASH_PURCHASE' },
+  { category: 'SELL_PROPERTY', strategy: 'FLAT_CONVERSION' },
+  { category: 'SELL_PROPERTY', strategy: 'ADD_BEDROOM' },
+  { category: 'SELL_PROPERTY', strategy: 'EXTENSION' },
+  { category: 'SELL_PROPERTY', strategy: 'LOFT_CONVERSION' },
 ];
 
 export type WizardPath =
+  // Rent to Rent
   | { category: 'RENT_TO_RENT'; strategy: 'HMO' }
   | { category: 'RENT_TO_RENT'; strategy: 'SA' }
-  | { category: 'RENT_TO_RENT'; strategy: 'BLOCK_OF_PROPERTY' };
+  | { category: 'RENT_TO_RENT'; strategy: 'BLOCK_OF_PROPERTY' }
+  // Sell Property
+  | { category: 'SELL_PROPERTY'; strategy: 'SINGLE_LET' }
+  | { category: 'SELL_PROPERTY'; strategy: 'HMO' }
+  | { category: 'SELL_PROPERTY'; strategy: 'HIGH_ROI' }
+  | { category: 'SELL_PROPERTY'; strategy: 'CASH_PURCHASE' }
+  | { category: 'SELL_PROPERTY'; strategy: 'FLAT_CONVERSION' }
+  | { category: 'SELL_PROPERTY'; strategy: 'ADD_BEDROOM' }
+  | { category: 'SELL_PROPERTY'; strategy: 'EXTENSION' }
+  | { category: 'SELL_PROPERTY'; strategy: 'LOFT_CONVERSION' };
 
 // ── Section IDs ────────────────────────────────────────────────────────────
 
 export type SectionId =
+  // R2R sections (existing)
   | 'r2r-address'
   | 'hmo-details'
   | 'rent-term'
@@ -27,7 +48,14 @@ export type SectionId =
   | 'media'
   | 'hmo-summary'
   | 'sa-summary'
-  | 'block-summary';
+  | 'block-summary'
+  // Sell Property sections
+  | 'sell-ownership'
+  | 'sell-pricing'
+  | 'sell-cost-to-buy'
+  | 'sell-finance'
+  | 'sell-add-value'
+  | 'sell-summary';
 
 // ── Step types ─────────────────────────────────────────────────────────────
 
@@ -51,6 +79,7 @@ export interface WizardState {
 // ── Section config: maps each (category, strategy) to section order ─────────
 
 export const PATH_SECTIONS: Record<string, SectionId[]> = {
+  // ── Rent to Rent ──
   RENT_TO_RENT_HMO: [
     'r2r-address',
     'hmo-details',
@@ -76,6 +105,96 @@ export const PATH_SECTIONS: Record<string, SectionId[]> = {
     'agency-details',
     'media',
     'block-summary',
+  ],
+
+  // ── Sell Property (all strategies share the same sections) ──
+  SELL_PROPERTY_SINGLE_LET: [
+    'r2r-address',
+    'sell-ownership',
+    'sell-pricing',
+    'sell-cost-to-buy',
+    'sell-finance',
+    'sell-add-value',
+    'agency-details',
+    'media',
+    'sell-summary',
+  ],
+  SELL_PROPERTY_HMO: [
+    'r2r-address',
+    'sell-ownership',
+    'sell-pricing',
+    'sell-cost-to-buy',
+    'sell-finance',
+    'sell-add-value',
+    'agency-details',
+    'media',
+    'sell-summary',
+  ],
+  SELL_PROPERTY_HIGH_ROI: [
+    'r2r-address',
+    'sell-ownership',
+    'sell-pricing',
+    'sell-cost-to-buy',
+    'sell-finance',
+    'sell-add-value',
+    'agency-details',
+    'media',
+    'sell-summary',
+  ],
+  SELL_PROPERTY_CASH_PURCHASE: [
+    'r2r-address',
+    'sell-ownership',
+    'sell-pricing',
+    'sell-cost-to-buy',
+    'sell-finance',
+    'sell-add-value',
+    'agency-details',
+    'media',
+    'sell-summary',
+  ],
+  SELL_PROPERTY_FLAT_CONVERSION: [
+    'r2r-address',
+    'sell-ownership',
+    'sell-pricing',
+    'sell-cost-to-buy',
+    'sell-finance',
+    'sell-add-value',
+    'agency-details',
+    'media',
+    'sell-summary',
+  ],
+  SELL_PROPERTY_ADD_BEDROOM: [
+    'r2r-address',
+    'sell-ownership',
+    'sell-pricing',
+    'sell-cost-to-buy',
+    'sell-finance',
+    'sell-add-value',
+    'agency-details',
+    'media',
+    'sell-summary',
+  ],
+  SELL_PROPERTY_EXTENSION: [
+    'r2r-address',
+    'sell-ownership',
+    'sell-pricing',
+    'sell-cost-to-buy',
+    'sell-finance',
+    'sell-add-value',
+    'agency-details',
+    'media',
+    'sell-summary',
+  ],
+  SELL_PROPERTY_LOFT_CONVERSION: [
+    'r2r-address',
+    'sell-ownership',
+    'sell-pricing',
+    'sell-cost-to-buy',
+    'sell-finance',
+    'sell-add-value',
+    'agency-details',
+    'media',
+    'sell-summary',
   ],
 };
 

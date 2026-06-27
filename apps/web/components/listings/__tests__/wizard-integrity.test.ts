@@ -20,7 +20,12 @@ describe('wizard path → section mapping integrity', () => {
 
   it('every WizardPath key matches a known PATH_SECTIONS entry', () => {
     const keys = ALL_WIZARD_PATHS.map(pathKey);
-    const expected = ['RENT_TO_RENT_HMO', 'RENT_TO_RENT_SA', 'RENT_TO_RENT_BLOCK_OF_PROPERTY'];
+    const expected = [
+      'RENT_TO_RENT_HMO', 'RENT_TO_RENT_SA', 'RENT_TO_RENT_BLOCK_OF_PROPERTY',
+      'SELL_PROPERTY_SINGLE_LET', 'SELL_PROPERTY_HMO', 'SELL_PROPERTY_HIGH_ROI',
+      'SELL_PROPERTY_CASH_PURCHASE', 'SELL_PROPERTY_FLAT_CONVERSION',
+      'SELL_PROPERTY_ADD_BEDROOM', 'SELL_PROPERTY_EXTENSION', 'SELL_PROPERTY_LOFT_CONVERSION',
+    ];
     for (const k of keys) {
       expect(expected, `key "${k}" not in expected set`).toContain(k);
       expect(PATH_SECTIONS, `PATH_SECTIONS missing key "${k}"`).toHaveProperty(k);

@@ -28,6 +28,13 @@ import AgencyDetailsSection from './sections/agency-details-section';
 import MediaSection from './sections/media-section';
 import HmoSummarySection from './sections/hmo-summary-section';
 import SaSummarySection from './sections/sa-summary-section';
+// Sell Property sections
+import SellOwnershipSection from './sections/sell-ownership-section';
+import SellPricingSection from './sections/sell-pricing-section';
+import SellCostToBuySection from './sections/sell-cost-to-buy-section';
+import SellFinanceSection from './sections/sell-finance-section';
+import SellAddValueSection from './sections/sell-add-value-section';
+import SellSummarySection from './sections/sell-summary-section';
 
 interface Props {
   onDraftSaved?: (id: string, failedFiles?: string[]) => void;
@@ -41,6 +48,9 @@ export const WIZARD_REGISTERED_SECTIONS: SectionId[] = [
   'sa-details', 'sa-income', 'block-unit-mix', 'block-per-unit',
   'agency-details', 'media',
   'hmo-summary', 'sa-summary', 'block-summary',
+  // Sell Property
+  'sell-ownership', 'sell-pricing', 'sell-cost-to-buy', 'sell-finance',
+  'sell-add-value', 'sell-summary',
 ];
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
@@ -117,6 +127,13 @@ export default function RentToRentWizard({ onDraftSaved }: Props) {
           'media': 'Photos',
           'hmo-summary': 'Summary',
           'sa-summary': 'Summary',
+          // Sell Property
+          'sell-ownership': 'Ownership',
+          'sell-pricing': 'Pricing',
+          'sell-cost-to-buy': 'Cost to Buy',
+          'sell-finance': 'Finance',
+          'sell-add-value': 'Add Value',
+          'sell-summary': 'Summary',
         };
         labels.push(map[s.sectionId] ?? s.sectionId);
       } else if (s.kind === 'summary') labels.push('Review');
@@ -142,18 +159,21 @@ export default function RentToRentWizard({ onDraftSaved }: Props) {
 
   const selectCategory = useCallback((cat: string) => {
     if (cat === 'RENT_TO_RENT') {
-      // Preserve existing strategy if already on R2R path, else default to HMO
       const strategy = path?.strategy ?? 'HMO';
       dispatch({ type: 'SELECT_PATH', path: { category: 'RENT_TO_RENT', strategy } as WizardPath });
       return;
     }
-    // For non-R2R categories (stub): just show message
+    if (cat === 'SELL_PROPERTY') {
+      const strategy = path?.strategy ?? 'SINGLE_LET';
+      dispatch({ type: 'SELECT_PATH', path: { category: 'SELL_PROPERTY', strategy } as WizardPath });
+      return;
+    }
+    // For other categories: redirect
     router.push(`/agency/listings/new?cat=${cat}`);
   }, [router, path]);
 
-  const selectStrategy = useCallback((strategy: 'HMO' | 'SA' | 'BLOCK_OF_PROPERTY') => {
-    dispatch({ type: 'SELECT_PATH', path: { category: 'RENT_TO_RENT', strategy } });
-    // Advance past strategy-select to first section (index 2 = category-select(0), strategy-select(1), first-section(2))
+  const selectStrategy = useCallback((cat: string, strategy: string) => {
+    dispatch({ type: 'SELECT_PATH', path: { category: cat as any, strategy: strategy as any } });
     dispatch({ type: 'GO_TO_STEP', index: 2 });
   }, []);
 
@@ -165,7 +185,7 @@ export default function RentToRentWizard({ onDraftSaved }: Props) {
     dispatch({ type: 'GO_TO_STEP', index: Math.min(nextIdx, steps.length - 1) });
   }, [currentStepIndex, steps.length]);
 
-  // ── Submit ──
+  // ── R2R Submit ──
 
   const handleSubmit = useCallback(async () => {
     if (!path) return;
@@ -310,6 +330,97 @@ export default function RentToRentWizard({ onDraftSaved }: Props) {
     }
   }, [path, sectionData, stagedPhotosRef, onDraftSaved, router]);
 
+  // ── Sell Property Submit ──
+
+  const handleSellSubmit = useCallback(async () => {
+    if (!path) return;
+    dispatch({ type: 'SET_SUBMITTING', value: true });
+    dispatch({ type: 'SET_ERROR', error: null });
+
+    try {
+      const address = sectionData['r2r-address'] as any;
+      const ownership = sectionData['sell-ownership'] as any;
+      const pricing = sectionData['sell-pricing'] as any;
+      const costToBuy = sectionData['sell-cost-to-buy'] as any;
+      const finance = sectionData['sell-finance'] as any;
+      const addValue = sectionData['sell-add-value'] as any;
+      const agencyDetails = sectionData['agency-details'] as any;
+
+      if (!address || !pricing || !costToBuy) {
+        throw new Error('Missing required sections');
+      }
+
+      const payload = {
+        category: 'SELL_PROPERTY',
+        strategy: path.strategy,
+        status: 'PUBLISHED',
+        base: {
+          title: `${address.houseNumber ? address.houseNumber + ' ' : ''}${address.addressLine1}`,
+          addressLine1: address.addressLine1,
+          addressLine2: address.addressLine2 ?? '',
+          city: address.city,
+          postcode: address.postcode,
+          buildingNumber: address.houseNumber ?? '',
+          region: address.region === 'MANUAL' ? (address.manualRegion ?? '') : address.region,
+          propertyType: address.propertyType,
+          propertyTypeOther: address.propertyTypeOther ?? '',
+          latitude: address.latitude ?? undefined,
+          longitude: address.longitude ?? undefined,
+        },
+        strategySpecificData: {
+          // Ownership & legal
+          ownershipType: ownership?.ownershipType,
+          leaseExpiryDate: ownership?.leaseExpiryDate,
+          currentRentPence: ownership?.currentRentPence,
+
+          // Pricing
+          askingPricePence: pricing.askingPricePence,
+          marketValuePence: pricing.marketValuePence,
+          estimatedValuePence: pricing.estimatedValuePence,
+          propertySize: pricing.propertySize,
+          existingRentPence: pricing.existingRentPence,
+          potentialRentPence: pricing.potentialRentPence,
+          ricsType: pricing.ricsType,
+
+          // Cost to buy
+          depositPence: costToBuy.depositPence,
+          stampDutyPence: costToBuy.stampDutyPence,
+          finderFeePence: costToBuy.finderFeePence,
+          legalFeesPence: costToBuy.legalFeesPence,
+          otherAcquisitionCostsPence: costToBuy.otherAcquisitionCostsPence,
+
+          // Finance
+          mortgageInterestRate: finance?.mortgageInterestRate,
+          financeNotes: finance?.financeNotes,
+
+          // Add-value
+          addValueOptions: addValue?.addValueOptions,
+          refurbCostPence: addValue?.refurbCostPence,
+          developmentCostPence: addValue?.developmentCostPence,
+          builderInPlace: addValue?.builderInPlace,
+          quoteAvailable: addValue?.quoteAvailable,
+          estimateAmountPence: addValue?.estimateAmountPence,
+
+          // Agency
+          agencyDetails: agencyDetails?.agencyDetails ?? '',
+        },
+      };
+
+      await submitListing(payload, stagedPhotosRef.current);
+
+      // Success
+      if (onDraftSaved) {
+        onDraftSaved('new', []);
+      } else {
+        router.push('/agency/listings');
+      }
+    } catch (err: any) {
+      dispatch({ type: 'SET_ERROR', error: err.message ?? 'Publish failed' });
+    } finally {
+      dispatch({ type: 'SET_SUBMITTING', value: false });
+    }
+  }, [path, sectionData, stagedPhotosRef, onDraftSaved, router]);
+
   const submitListing = async (payload: Record<string, unknown>, photos: StagedPhoto[]) => {
     // POST to API
     const res = await fetch(`${API_BASE}/listings`, {
@@ -364,7 +475,7 @@ export default function RentToRentWizard({ onDraftSaved }: Props) {
           <div>
             <h2 className="text-xl font-semibold mb-6">Listing Category</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {CATEGORY_CONFIG.filter(c => c.category === 'RENT_TO_RENT').map((cat) => (
+              {CATEGORY_CONFIG.filter(c => c.category === 'RENT_TO_RENT' || c.category === 'SELL_PROPERTY').map((cat) => (
                 <button key={cat.category} type="button"
                   onClick={() => selectCategory(cat.category)}
                   className="glass-card p-5 text-left transition-all duration-200 hover:bg-deep-600 ring-2 ring-gold-400 shadow-glow-gold"
@@ -377,28 +488,29 @@ export default function RentToRentWizard({ onDraftSaved }: Props) {
           </div>
         );
 
-      case 'strategy-select':
+      case 'strategy-select': {
+        // Determine which category we're selecting strategies for
+        const currentCategory = path?.category ?? 'RENT_TO_RENT';
+        const strategies = CATEGORY_CONFIG.find(c => c.category === currentCategory)?.strategies ?? [];
         return (
           <div>
             <h2 className="text-xl font-semibold mb-6">Investment Strategy</h2>
-            <p className="text-sm text-slate-400 mb-4">Rent to Rent — choose a deal structure</p>
+            <p className="text-sm text-slate-400 mb-4">
+              {CATEGORY_CONFIG.find(c => c.category === currentCategory)?.label ?? currentCategory} — choose a deal structure
+            </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {[
-                { strategy: 'HMO' as const, label: 'HMO (House in Multiple Occupation)', desc: 'Multiple tenants, room-by-room rents' },
-                { strategy: 'SA' as const, label: 'Serviced Accommodation', desc: 'Short-term / holiday let model' },
-                { strategy: 'BLOCK_OF_PROPERTY' as const, label: 'Block of Property', desc: 'Multiple units in one deal' },
-              ].map((s) => (
+              {strategies.map((s) => (
                 <button key={s.strategy} type="button"
-                  onClick={() => selectStrategy(s.strategy)}
+                  onClick={() => selectStrategy(currentCategory, s.strategy)}
                   className="glass-card p-5 text-left transition-all duration-200 hover:bg-deep-600"
                 >
                   <p className="font-semibold text-base">{s.label}</p>
-                  <p className="text-xs text-slate-400 mt-1">{s.desc}</p>
                 </button>
               ))}
             </div>
           </div>
         );
+      }
 
       case 'section': {
         const sec = currentStep.sectionId;
@@ -468,6 +580,37 @@ export default function RentToRentWizard({ onDraftSaved }: Props) {
             />
           );
         }
+        // ── Sell Property sections ──
+        if (sec === 'sell-ownership') {
+          return <SellOwnershipSection initialData={sectionData['sell-ownership'] as any} onNext={(d) => onSectionNext('sell-ownership', d)} onBack={goBack} />;
+        }
+        if (sec === 'sell-pricing') {
+          return <SellPricingSection initialData={sectionData['sell-pricing'] as any} onNext={(d) => onSectionNext('sell-pricing', d)} onBack={goBack} />;
+        }
+        if (sec === 'sell-cost-to-buy') {
+          return <SellCostToBuySection initialData={sectionData['sell-cost-to-buy'] as any} onNext={(d) => onSectionNext('sell-cost-to-buy', d)} onBack={goBack} />;
+        }
+        if (sec === 'sell-finance') {
+          return <SellFinanceSection initialData={sectionData['sell-finance'] as any} onNext={(d) => onSectionNext('sell-finance', d)} onBack={goBack} />;
+        }
+        if (sec === 'sell-add-value') {
+          return <SellAddValueSection initialData={sectionData['sell-add-value'] as any} onNext={(d) => onSectionNext('sell-add-value', d)} onBack={goBack} />;
+        }
+        if (sec === 'sell-summary') {
+          return (
+            <SellSummarySection
+              sellOwnership={sectionData['sell-ownership'] as any}
+              sellPricing={sectionData['sell-pricing'] as any}
+              sellCostToBuy={sectionData['sell-cost-to-buy'] as any}
+              sellFinance={sectionData['sell-finance'] as any}
+              sellAddValue={sectionData['sell-add-value'] as any}
+              onConfirm={handleSellSubmit}
+              onBack={goBack}
+              isSubmitting={isSubmitting}
+            />
+          );
+        }
+
         // Fallback — missing component registration
         if (process.env.NODE_ENV === 'development') {
           console.error(`[Wizard] No registered component for section "${sec}". Add to REGISTERED_SECTIONS array and render case.`);

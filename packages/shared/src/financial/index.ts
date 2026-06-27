@@ -1,4 +1,5 @@
 export {
+  // R2R / HMO
   calcHmoGrossMonthlyIncome,
   calcHmoMoneyNeededIn,
   calcHmoMonthlyOperatingCosts,
@@ -8,15 +9,38 @@ export {
   calcSaBreakEvenOccupancy,
   calcSaProfit,
   calcSaTotalCosts,
+  calcHmoYear1AnnualProfit,
+  calcBillItemsTotal,
+  calcHmoSummary,
+  calcSaSummary,
+  // Common financial
   calcMonthlyMortgageCost,
   calcManagementFee,
   calcDeposit,
   calcTotalCostToBuy,
   calcRoi,
-  calcHmoYear1AnnualProfit,
-  calcBillItemsTotal,
-  calcHmoSummary,
-  calcSaSummary,
+  // Sell Property
+  calcSellGrossYield,
+  calcSellNetYield,
+  calcSellTotalCostToBuy,
+  calcSellTotalInvestment,
+  calcSellAddValueProfit,
+  calcSellAddValueRoi,
+  calcSellNetAnnualIncome,
+  calcSellSummary,
+  // Development
+  calcDevTotalCost,
+  calcDevProfit,
+  calcDevRoi,
+  calcDevSummary,
+  // Refurb
+  calcRefurbTotalInvestment,
+  calcRefurbProfit,
+  calcRefurbRoi,
+  calcRefurbSummary,
+  // Lease Option
+  calcLeaseOptionCostToBuy,
+  calcLeaseOptionRoi,
   // Unit conversion helpers
   poundsToPence,
   penceToPounds,
@@ -35,4 +59,18 @@ export type {
   HmoSummaryResult,
   SaSummaryInput,
   SaSummaryResult,
+  // Sell Property
+  SellAddValueParams,
+  SellYieldParams,
+  SellSummaryInput,
+  SellSummaryResult,
+  // Development
+  DevSummaryInput,
+  DevSummaryResult,
+  // Refurb
+  RefurbSummaryInput,
+  RefurbSummaryResult,
+  // Lease Option
+  LeaseOptionSummaryInput,
+  LeaseOptionSummaryResult,
 } from './calculations';

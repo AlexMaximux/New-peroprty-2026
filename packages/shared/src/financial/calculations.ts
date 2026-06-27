@@ -335,6 +335,457 @@ export function calcRoi(investmentPence: number, annualReturnPence: number): num
   return annualReturnPence / investmentPence;
 }
 
+// ── Sell Property functions ─────────────────────────────────────────────────────
+
+export interface SellAddValueParams {
+  /** Total cost to buy (deposit + fees + stamp duty + legal + other), pence */
+  totalCostToBuyPence: number;
+  /** Asking price of the property, pence */
+  askingPricePence: number;
+  /** Market value after refurb/add-value work, pence */
+  afterValuePence: number;
+  /** Cost of refurbishment work, pence. Default 0. */
+  refurbCostPence?: number;
+}
+
+export interface SellYieldParams {
+  /** Annual potential rent (from pricing section), pence */
+  annualRentPence: number;
+  /** Asking price, pence */
+  askingPricePence: number;
+  /** Total acquisition costs (buy costs + refurb), pence */
+  totalInvestmentPence: number;
+}
+
+export interface SellSummaryInput {
+  askingPricePence: number;
+  marketValuePence?: number;
+  annualRentPence: number;
+  depositPence: number;
+  stampDutyPence: number;
+  finderFeePence: number;
+  legalFeesPence: number;
+  otherAcquisitionCostsPence: number;
+  refurbCostPence?: number;
+  developmentCostPence?: number;
+  mortgageInterestRate?: number;
+  potentialAddValuePence?: number;
+}
+
+export interface SellSummaryResult {
+  totalCostToBuyPence: number;
+  totalInvestmentPence: number;
+  grossYield: number;
+  netYield: number;
+  monthlyMortgagePence: number;
+  annualMortgageCostPence: number;
+  netAnnualIncomePence: number;
+  cashRoi: number;
+  addValueProfitPence: number;
+  addValueRoi: number;
+}
+
+/**
+ * Sell Property — Gross yield.
+ *
+ * Gross yield = annual rent / asking price.
+ * Returns decimal (0.05 = 5%). Display layer formats as percentage.
+ */
+export function calcSellGrossYield(annualRentPence: number, askingPricePence: number): number {
+  assertNonNegative(annualRentPence, 'annualRentPence');
+  assertNonNegative(askingPricePence, 'askingPricePence');
+  if (askingPricePence === 0) return annualRentPence === 0 ? 0 : Infinity;
+  return annualRentPence / askingPricePence;
+}
+
+/**
+ * Sell Property — Net yield.
+ *
+ * Net yield = (annual rent − annual costs) / total investment.
+ * Costs include mortgage interest, management, maintenance (as % of rent), etc.
+ * Returns decimal (0.04 = 4%).
+ */
+export function calcSellNetYield(
+  netAnnualIncomePence: number,
+  totalInvestmentPence: number,
+): number {
+  if (totalInvestmentPence === 0) return netAnnualIncomePence === 0 ? 0 : netAnnualIncomePence > 0 ? Infinity : -Infinity;
+  return netAnnualIncomePence / totalInvestmentPence;
+}
+
+/**
+ * Sell Property — Total cost to buy (purchasing costs only, excluding refurb).
+ *
+ * Sum of deposit + stamp duty + finder fee + legal fees + other acquisition costs.
+ */
+export function calcSellTotalCostToBuy(
+  depositPence: number,
+  stampDutyPence: number = 0,
+  finderFeePence: number = 0,
+  legalFeesPence: number = 0,
+  otherAcquisitionCostsPence: number = 0,
+): number {
+  return calcTotalCostToBuy({
+    depositPence,
+    stampDutyPence,
+    finderFeesPence: finderFeePence,
+    legalFeesPence,
+    otherCostsPence: otherAcquisitionCostsPence,
+  });
+}
+
+/**
+ * Sell Property — Total investment (cost to buy + refurb/development costs).
+ */
+export function calcSellTotalInvestment(
+  totalCostToBuyPence: number,
+  refurbCostPence: number = 0,
+  developmentCostPence: number = 0,
+): number {
+  assertNonNegative(totalCostToBuyPence, 'totalCostToBuyPence');
+  assertNonNegative(refurbCostPence, 'refurbCostPence');
+  assertNonNegative(developmentCostPence, 'developmentCostPence');
+  return Math.round(totalCostToBuyPence + refurbCostPence + developmentCostPence);
+}
+
+/**
+ * Sell Property — Add-value profit.
+ *
+ * If a property is bought, refurbished, and sold/refinanced at a higher value:
+ * profit = afterValue − (costToBuy + refurbCost)
+ */
+export function calcSellAddValueProfit(
+  afterValuePence: number,
+  totalInvestmentPence: number,
+): number {
+  assertNonNegative(afterValuePence, 'afterValuePence');
+  assertNonNegative(totalInvestmentPence, 'totalInvestmentPence');
+  return Math.round(afterValuePence - totalInvestmentPence);
+}
+
+/**
+ * Sell Property — Add-value ROI.
+ *
+ * ROI = addValueProfit / totalInvestment.
+ * Returns decimal (0.25 = 25%).
+ */
+export function calcSellAddValueRoi(
+  addValueProfitPence: number,
+  totalInvestmentPence: number,
+): number {
+  return calcRoi(totalInvestmentPence, addValueProfitPence);
+}
+
+/**
+ * Sell Property — Net annual income.
+ *
+ * Net annual income = annual rent − annual operating costs.
+ * Operating costs = mortgage interest + management fee + maintenance.
+ */
+export function calcSellNetAnnualIncome(
+  annualRentPence: number,
+  annualMortgageCostPence: number,
+  annualOperatingCostsPence: number = 0,
+): number {
+  assertNonNegative(annualRentPence, 'annualRentPence');
+  assertNonNegative(annualMortgageCostPence, 'annualMortgageCostPence');
+  assertNonNegative(annualOperatingCostsPence, 'annualOperatingCostsPence');
+  return Math.round(annualRentPence - annualMortgageCostPence - annualOperatingCostsPence);
+}
+
+/**
+ * Full Sell Property summary pipeline.
+ *
+ * 1. Total cost to buy = deposit + stamp duty + finder fee + legal + other.
+ * 2. Total investment = cost to buy + refurb + development.
+ * 3. Gross yield = annual rent / asking price.
+ * 4. Monthly mortgage = (askingPrice × LTV × rate) / 12.
+ * 5. Annual mortgage cost = monthly × 12.
+ * 6. Net annual income = annual rent − annual mortgage − operating costs.
+ * 7. Net yield = net annual income / total investment.
+ * 8. Cash ROI = net annual income / total investment (same as net yield for cash buyers).
+ * 9. Add-value profit = afterValue − total investment.
+ * 10. Add-value ROI = add-value profit / total investment.
+ */
+export function calcSellSummary(input: SellSummaryInput): SellSummaryResult {
+  const totalCostToBuyPence = calcSellTotalCostToBuy(
+    input.depositPence,
+    input.stampDutyPence,
+    input.finderFeePence,
+    input.legalFeesPence,
+    input.otherAcquisitionCostsPence,
+  );
+
+  const totalInvestmentPence = calcSellTotalInvestment(
+    totalCostToBuyPence,
+    input.refurbCostPence ?? 0,
+    input.developmentCostPence ?? 0,
+  );
+
+  const grossYield = calcSellGrossYield(input.annualRentPence, input.askingPricePence);
+
+  // Mortgage cost (if financed)
+  const monthlyMortgagePence = input.mortgageInterestRate != null
+    ? calcMonthlyMortgageCost(input.askingPricePence, input.mortgageInterestRate)
+    : 0;
+  const annualMortgageCostPence = Math.round(monthlyMortgagePence * 12);
+
+  // Net annual income
+  const netAnnualIncomePence = calcSellNetAnnualIncome(
+    input.annualRentPence,
+    annualMortgageCostPence,
+  );
+
+  // Net yield
+  const netYield = calcSellNetYield(netAnnualIncomePence, totalInvestmentPence);
+
+  // Cash ROI (same calc as net yield but for the cash-buyer perspective)
+  const cashRoi = calcRoi(totalInvestmentPence, netAnnualIncomePence);
+
+  // Add-value calculations
+  const afterValuePence = (input.marketValuePence ?? input.askingPricePence) + (input.potentialAddValuePence ?? 0);
+  const addValueProfitPence = calcSellAddValueProfit(afterValuePence, totalInvestmentPence);
+  const addValueRoi = calcSellAddValueRoi(addValueProfitPence, totalInvestmentPence);
+
+  return {
+    totalCostToBuyPence,
+    totalInvestmentPence,
+    grossYield,
+    netYield,
+    monthlyMortgagePence,
+    annualMortgageCostPence,
+    netAnnualIncomePence,
+    cashRoi,
+    addValueProfitPence,
+    addValueRoi,
+  };
+}
+
+// ── Development Opportunity functions ──────────────────────────────────────────
+
+export interface DevSummaryInput {
+  costOfDevelopmentPence: number;
+  askingPricePence: number;
+  depositPence: number;
+  stampDutyPence?: number;
+  finderFeePence?: number;
+  legalCostsPence?: number;
+  otherCostsPence?: number;
+  afterDevelopmentValuePence?: number;
+}
+
+export interface DevSummaryResult {
+  totalDevelopmentCostPence: number;
+  totalInvestmentPence: number;
+  profitPence: number;
+  roi: number;
+}
+
+/**
+ * Development Opportunity — Total development cost.
+ *
+ * Sum of development cost + purchase costs (deposit, stamp duty, finder fee, legal).
+ */
+export function calcDevTotalCost(
+  costOfDevelopmentPence: number,
+  depositPence: number,
+  stampDutyPence: number = 0,
+  finderFeePence: number = 0,
+  legalCostsPence: number = 0,
+  otherCostsPence: number = 0,
+): number {
+  assertNonNegative(costOfDevelopmentPence, 'costOfDevelopmentPence');
+  assertNonNegative(depositPence, 'depositPence');
+  assertNonNegative(stampDutyPence, 'stampDutyPence');
+  assertNonNegative(finderFeePence, 'finderFeePence');
+  assertNonNegative(legalCostsPence, 'legalCostsPence');
+  assertNonNegative(otherCostsPence, 'otherCostsPence');
+  return Math.round(costOfDevelopmentPence + depositPence + stampDutyPence + finderFeePence + legalCostsPence + otherCostsPence);
+}
+
+/**
+ * Development Opportunity profit.
+ *
+ * profit = afterDevelopmentValue − totalDevelopmentCost.
+ */
+export function calcDevProfit(
+  afterDevelopmentValuePence: number,
+  totalDevelopmentCostPence: number,
+): number {
+  assertNonNegative(afterDevelopmentValuePence, 'afterDevelopmentValuePence');
+  assertNonNegative(totalDevelopmentCostPence, 'totalDevelopmentCostPence');
+  return Math.round(afterDevelopmentValuePence - totalDevelopmentCostPence);
+}
+
+/**
+ * Development Opportunity — Development ROI.
+ *
+ * ROI = profit / totalDevelopmentCost.
+ */
+export function calcDevRoi(profitPence: number, totalDevelopmentCostPence: number): number {
+  return calcRoi(totalDevelopmentCostPence, profitPence);
+}
+
+/**
+ * Full Development summary.
+ */
+export function calcDevSummary(input: DevSummaryInput): DevSummaryResult {
+  const totalDevelopmentCostPence = calcDevTotalCost(
+    input.costOfDevelopmentPence,
+    input.depositPence,
+    input.stampDutyPence,
+    input.finderFeePence,
+    input.legalCostsPence,
+    input.otherCostsPence,
+  );
+
+  const afterValue = input.afterDevelopmentValuePence ?? input.askingPricePence * 1.2; // default +20%
+  const profitPence = calcDevProfit(afterValue, totalDevelopmentCostPence);
+  const roi = calcDevRoi(profitPence, totalDevelopmentCostPence);
+
+  return {
+    totalDevelopmentCostPence,
+    totalInvestmentPence: totalDevelopmentCostPence,
+    profitPence,
+    roi,
+  };
+}
+
+// ── Refurb Opportunity functions ───────────────────────────────────────────────
+
+export interface RefurbSummaryInput {
+  costToRefurbishPence: number;
+  askingPricePence: number;
+  depositPence: number;
+  stampDutyPence?: number;
+  finderFeePence?: number;
+  legalFeesPence?: number;
+  otherCostsPence?: number;
+  potentialAddValuePence: number;
+}
+
+export interface RefurbSummaryResult {
+  totalInvestmentPence: number;
+  afterValuePence: number;
+  profitPence: number;
+  roi: number;
+}
+
+/**
+ * Refurb Opportunity — total investment.
+ *
+ * Total investment = cost to buy + refurb cost.
+ */
+export function calcRefurbTotalInvestment(
+  costToBuyPence: number,
+  costToRefurbishPence: number,
+): number {
+  assertNonNegative(costToBuyPence, 'costToBuyPence');
+  assertNonNegative(costToRefurbishPence, 'costToRefurbishPence');
+  return Math.round(costToBuyPence + costToRefurbishPence);
+}
+
+/**
+ * Refurb Opportunity profit.
+ *
+ * profit = (askingPrice + addValue) − totalInvestment.
+ */
+export function calcRefurbProfit(
+  afterValuePence: number,
+  totalInvestmentPence: number,
+): number {
+  assertNonNegative(afterValuePence, 'afterValuePence');
+  assertNonNegative(totalInvestmentPence, 'totalInvestmentPence');
+  return Math.round(afterValuePence - totalInvestmentPence);
+}
+
+/**
+ * Refurb Opportunity ROI.
+ *
+ * ROI = profit / totalInvestment.
+ */
+export function calcRefurbRoi(profitPence: number, totalInvestmentPence: number): number {
+  return calcRoi(totalInvestmentPence, profitPence);
+}
+
+/**
+ * Full Refurb summary.
+ */
+export function calcRefurbSummary(input: RefurbSummaryInput): RefurbSummaryResult {
+  const costToBuyPence = calcSellTotalCostToBuy(
+    input.depositPence,
+    input.stampDutyPence,
+    input.finderFeePence,
+    input.legalFeesPence,
+    input.otherCostsPence,
+  );
+
+  const totalInvestmentPence = calcRefurbTotalInvestment(costToBuyPence, input.costToRefurbishPence);
+  const afterValuePence = input.askingPricePence + (input.potentialAddValuePence ?? 0);
+  const profitPence = calcRefurbProfit(afterValuePence, totalInvestmentPence);
+  const roi = calcRefurbRoi(profitPence, totalInvestmentPence);
+
+  return {
+    totalInvestmentPence,
+    afterValuePence,
+    profitPence,
+    roi,
+  };
+}
+
+// ── Lease Option functions ─────────────────────────────────────────────────────
+
+export interface LeaseOptionSummaryInput {
+  pricePence: number;
+  potentialIncomePence?: number;
+  depositPence?: number;
+  stampDutyPence?: number;
+  finderFeePence?: number;
+  legalFeesPence?: number;
+  otherCostsPence?: number;
+}
+
+export interface LeaseOptionSummaryResult {
+  costToBuyPence: number;
+  totalInvestmentPence: number;
+  annualIncomePence: number;
+  roi: number;
+}
+
+/**
+ * Lease Option — total cost to exercise option.
+ *
+ * Sum of all acquisition costs.
+ */
+export function calcLeaseOptionCostToBuy(
+  pricePence: number,
+  depositPence: number = 0,
+  stampDutyPence: number = 0,
+  finderFeePence: number = 0,
+  legalFeesPence: number = 0,
+  otherCostsPence: number = 0,
+): number {
+  assertNonNegative(pricePence, 'pricePence');
+  assertNonNegative(depositPence, 'depositPence');
+  assertNonNegative(stampDutyPence, 'stampDutyPence');
+  assertNonNegative(finderFeePence, 'finderFeePence');
+  assertNonNegative(legalFeesPence, 'legalFeesPence');
+  assertNonNegative(otherCostsPence, 'otherCostsPence');
+  return Math.round(pricePence + depositPence + stampDutyPence + finderFeePence + legalFeesPence + otherCostsPence);
+}
+
+/**
+ * Lease Option — annualised ROI.
+ *
+ * ROI = annualIncome / totalInvestment.
+ */
+export function calcLeaseOptionRoi(
+  annualIncomePence: number,
+  totalInvestmentPence: number,
+): number {
+  return calcRoi(totalInvestmentPence, annualIncomePence);
+}
+
 // ── Bill items (shareable helper) ───────────────────────────────────────────
 
 export interface BillItemInput {

@@ -18,6 +18,29 @@ import {
   calcBillItemsTotal,
   calcHmoSummary,
   calcSaSummary,
+  // Sell Property
+  calcSellGrossYield,
+  calcSellNetYield,
+  calcSellTotalCostToBuy,
+  calcSellTotalInvestment,
+  calcSellAddValueProfit,
+  calcSellAddValueRoi,
+  calcSellNetAnnualIncome,
+  calcSellSummary,
+  // Development
+  calcDevTotalCost,
+  calcDevProfit,
+  calcDevRoi,
+  calcDevSummary,
+  // Refurb
+  calcRefurbTotalInvestment,
+  calcRefurbProfit,
+  calcRefurbRoi,
+  calcRefurbSummary,
+  // Lease Option
+  calcLeaseOptionCostToBuy,
+  calcLeaseOptionRoi,
+  // Unit conversion helpers
   poundsToPence,
   penceToPounds,
   percentToDecimal,
@@ -1024,4 +1047,367 @@ describe('percentToDecimal / decimalToPercent round-trip', () => {
   });
   it('clamps > 100% to 1.0', () => { expect(percentToDecimal(150)).toBe(1.0); });
   it('clamps < 0% to 0', () => { expect(percentToDecimal(-10)).toBe(0); });
+});
+
+// ── Sell Property — Gross Yield ────────────────────────────────────────────────
+
+describe('calcSellGrossYield', () => {
+  it('annual rent / asking price', () => {
+    expect(calcSellGrossYield(1200000, 30000000)).toBeCloseTo(0.04, 5);
+  });
+
+  it('returns 0 when rent is 0', () => {
+    expect(calcSellGrossYield(0, 30000000)).toBe(0);
+  });
+
+  it('returns Infinity when price is 0 and rent > 0', () => {
+    expect(calcSellGrossYield(1000, 0)).toBe(Infinity);
+  });
+
+  it('returns 0 when both are 0', () => {
+    expect(calcSellGrossYield(0, 0)).toBe(0);
+  });
+
+  it('throws on negative rent', () => {
+    expect(() => calcSellGrossYield(-1, 1000)).toThrow('non-negative');
+  });
+});
+
+// ── Sell Property — Net Yield ──────────────────────────────────────────────────
+
+describe('calcSellNetYield', () => {
+  it('net income / total investment', () => {
+    expect(calcSellNetYield(60000, 1500000)).toBeCloseTo(0.04, 5);
+  });
+
+  it('returns 0 when both are 0', () => {
+    expect(calcSellNetYield(0, 0)).toBe(0);
+  });
+
+  it('returns Infinity when investment is 0 and income > 0', () => {
+    expect(calcSellNetYield(100, 0)).toBe(Infinity);
+  });
+});
+
+// ── Sell Property — Total Cost to Buy ──────────────────────────────────────────
+
+describe('calcSellTotalCostToBuy', () => {
+  it('sums deposit + stamp duty + finder + legal + other', () => {
+    expect(calcSellTotalCostToBuy(7500000, 1500000, 50000, 300000, 100000)).toBe(9450000);
+  });
+
+  it('handles only required deposit', () => {
+    expect(calcSellTotalCostToBuy(7500000)).toBe(7500000);
+  });
+
+  it('returns 0 for zero deposit', () => {
+    expect(calcSellTotalCostToBuy(0)).toBe(0);
+  });
+
+  it('throws on negative deposit', () => {
+    expect(() => calcSellTotalCostToBuy(-100)).toThrow('non-negative');
+  });
+});
+
+// ── Sell Property — Total Investment ──────────────────────────────────────────
+
+describe('calcSellTotalInvestment', () => {
+  it('costToBuy + refurb + development', () => {
+    expect(calcSellTotalInvestment(7500000, 500000, 200000)).toBe(8200000);
+  });
+
+  it('handles only cost to buy', () => {
+    expect(calcSellTotalInvestment(7500000)).toBe(7500000);
+  });
+
+  it('returns 0 when all are 0', () => {
+    expect(calcSellTotalInvestment(0)).toBe(0);
+  });
+
+  it('throws on negative refurb cost', () => {
+    expect(() => calcSellTotalInvestment(1000, -1)).toThrow('non-negative');
+  });
+});
+
+// ── Sell Property — Add Value Profit ──────────────────────────────────────────
+
+describe('calcSellAddValueProfit', () => {
+  it('afterValue − totalInvestment', () => {
+    expect(calcSellAddValueProfit(10000000, 8000000)).toBe(2000000);
+  });
+
+  it('returns 0 when equal', () => {
+    expect(calcSellAddValueProfit(500000, 500000)).toBe(0);
+  });
+
+  it('throws on negative afterValue', () => {
+    expect(() => calcSellAddValueProfit(-1, 1000)).toThrow('non-negative');
+  });
+});
+
+// ── Sell Property — Add Value ROI ─────────────────────────────────────────────
+
+describe('calcSellAddValueRoi', () => {
+  it('profit / totalInvestment', () => {
+    expect(calcSellAddValueRoi(2000000, 8000000)).toBeCloseTo(0.25, 3);
+  });
+
+  it('returns 0 for zero profit', () => {
+    expect(calcSellAddValueRoi(0, 8000000)).toBe(0);
+  });
+});
+
+// ── Sell Property — Net Annual Income ─────────────────────────────────────────
+
+describe('calcSellNetAnnualIncome', () => {
+  it('annual rent − mortgage − operating costs', () => {
+    expect(calcSellNetAnnualIncome(1200000, 500000, 100000)).toBe(600000);
+  });
+
+  it('handles zero operating costs', () => {
+    expect(calcSellNetAnnualIncome(1200000, 500000)).toBe(700000);
+  });
+
+  it('returns negative when costs exceed rent', () => {
+    expect(calcSellNetAnnualIncome(50000, 100000)).toBe(-50000);
+  });
+
+  it('throws on negative rent', () => {
+    expect(() => calcSellNetAnnualIncome(-1, 0)).toThrow('non-negative');
+  });
+});
+
+// ── Sell Property — Full Summary ──────────────────────────────────────────────
+
+describe('calcSellSummary', () => {
+  // Scenario: £300k asking, £250k market value, £12k/yr rent,
+  // 25% deposit = £75k, stamp duty £15k, finder £500, legal £3k
+  // Refurb £10k, mortgage rate 5%
+  const result = calcSellSummary({
+    askingPricePence: 30000000,
+    marketValuePence: 25000000,
+    annualRentPence: 1200000,
+    depositPence: 7500000,
+    stampDutyPence: 1500000,
+    finderFeePence: 50000,
+    legalFeesPence: 300000,
+    otherAcquisitionCostsPence: 100000,
+    refurbCostPence: 100000,
+    mortgageInterestRate: 0.05,
+  });
+
+  it('computes total cost to buy', () => {
+    // 7500000 + 1500000 + 50000 + 300000 + 100000 = 9450000
+    expect(result.totalCostToBuyPence).toBe(9450000);
+  });
+
+  it('computes total investment including refurb', () => {
+    // 9450000 + 100000 = 9550000
+    expect(result.totalInvestmentPence).toBe(9550000);
+  });
+
+  it('computes gross yield', () => {
+    // 1200000 / 30000000 = 0.04
+    expect(result.grossYield).toBeCloseTo(0.04, 5);
+  });
+
+  it('computes monthly mortgage cost', () => {
+    // (30000000 × 0.75 × 0.05) / 12 = 93750
+    expect(result.monthlyMortgagePence).toBe(93750);
+  });
+
+  it('computes annual mortgage cost', () => {
+    expect(result.annualMortgageCostPence).toBe(1125000);
+  });
+
+  it('computes net annual income', () => {
+    // 1200000 - 1125000 = 75000
+    expect(result.netAnnualIncomePence).toBe(75000);
+  });
+
+  it('computes net yield', () => {
+    // 75000 / 9550000 = 0.00785...
+    expect(result.netYield).toBeCloseTo(0.00785, 3);
+  });
+
+  it('computes add-value profit', () => {
+    // afterValue = marketValue + 0 = 25000000
+    // profit = 25000000 - 9550000 = 15450000
+    expect(result.addValueProfitPence).toBe(15450000);
+  });
+
+  it('computes add-value ROI', () => {
+    // 15450000 / 9550000 = 1.6178...
+    expect(result.addValueRoi).toBeCloseTo(1.6178, 3);
+  });
+
+  it('handles zero inputs', () => {
+    const r = calcSellSummary({
+      askingPricePence: 0,
+      annualRentPence: 0,
+      depositPence: 0,
+      stampDutyPence: 0,
+      finderFeePence: 0,
+      legalFeesPence: 0,
+      otherAcquisitionCostsPence: 0,
+    });
+    expect(r.totalCostToBuyPence).toBe(0);
+    expect(r.totalInvestmentPence).toBe(0);
+    expect(r.grossYield).toBe(0);
+    expect(r.monthlyMortgagePence).toBe(0);
+  });
+});
+
+// ── Development — Total Cost ──────────────────────────────────────────────────
+
+describe('calcDevTotalCost', () => {
+  it('development + deposit + stamp duty + finder + legal + other', () => {
+    expect(calcDevTotalCost(50000000, 7500000, 1500000, 50000, 300000, 100000)).toBe(59450000);
+  });
+
+  it('handles only development cost', () => {
+    expect(calcDevTotalCost(50000000, 0)).toBe(50000000);
+  });
+
+  it('throws on negative development cost', () => {
+    expect(() => calcDevTotalCost(-1, 0)).toThrow('non-negative');
+  });
+});
+
+// ── Development — Profit & ROI ────────────────────────────────────────────────
+
+describe('calcDevProfit', () => {
+  it('afterValue − totalCost', () => {
+    expect(calcDevProfit(80000000, 60000000)).toBe(20000000);
+  });
+});
+
+describe('calcDevRoi', () => {
+  it('profit / totalCost', () => {
+    expect(calcDevRoi(20000000, 60000000)).toBeCloseTo(0.3333, 3);
+  });
+});
+
+// ── Development — Full Summary ────────────────────────────────────────────────
+
+describe('calcDevSummary', () => {
+  it('computes full development summary', () => {
+    const result = calcDevSummary({
+      costOfDevelopmentPence: 50000000,
+      askingPricePence: 30000000,
+      depositPence: 7500000,
+      stampDutyPence: 1500000,
+      finderFeePence: 50000,
+      legalCostsPence: 300000,
+      otherCostsPence: 100000,
+      afterDevelopmentValuePence: 80000000,
+    });
+
+    // 50000000 + 7500000 + 1500000 + 50000 + 300000 + 100000 = 59450000
+    expect(result.totalDevelopmentCostPence).toBe(59450000);
+    expect(result.totalInvestmentPence).toBe(59450000);
+    // 80000000 - 59450000 = 20550000
+    expect(result.profitPence).toBe(20550000);
+    // 20550000 / 59450000 = 0.3456...
+    expect(result.roi).toBeCloseTo(0.3456, 3);
+  });
+
+  it('handles zero inputs', () => {
+    const result = calcDevSummary({
+      costOfDevelopmentPence: 0,
+      askingPricePence: 0,
+      depositPence: 0,
+    });
+    expect(result.totalDevelopmentCostPence).toBe(0);
+    expect(result.profitPence).toBe(0);
+    expect(result.roi).toBe(0);
+  });
+});
+
+// ── Refurb — Total Investment ─────────────────────────────────────────────────
+
+describe('calcRefurbTotalInvestment', () => {
+  it('costToBuy + refurbCost', () => {
+    expect(calcRefurbTotalInvestment(7500000, 500000)).toBe(8000000);
+  });
+
+  it('throws on negative inputs', () => {
+    expect(() => calcRefurbTotalInvestment(-1, 0)).toThrow('non-negative');
+  });
+});
+
+// ── Refurb — Profit & ROI ─────────────────────────────────────────────────────
+
+describe('calcRefurbProfit', () => {
+  it('afterValue − totalInvestment', () => {
+    expect(calcRefurbProfit(10000000, 8000000)).toBe(2000000);
+  });
+});
+
+describe('calcRefurbRoi', () => {
+  it('profit / totalInvestment', () => {
+    expect(calcRefurbRoi(2000000, 8000000)).toBeCloseTo(0.25, 3);
+  });
+});
+
+// ── Refurb — Full Summary ─────────────────────────────────────────────────────
+
+describe('calcRefurbSummary', () => {
+  // Property price £300k, deposit 25% = £75k, stamp £15k, finder £500, legal £3k
+  // Refurb £50k, potential add value £100k
+  const result = calcRefurbSummary({
+    costToRefurbishPence: 500000,
+    askingPricePence: 30000000,
+    depositPence: 7500000,
+    stampDutyPence: 1500000,
+    finderFeePence: 50000,
+    legalFeesPence: 300000,
+    otherCostsPence: 100000,
+    potentialAddValuePence: 1000000, // £10k added value (corrected from £100k)
+  });
+
+  it('computes total investment', () => {
+    // cost to buy = 7500000 + 1500000 + 50000 + 300000 + 100000 = 9450000
+    // total investment = 9450000 + 500000 = 9950000
+    expect(result.totalInvestmentPence).toBe(9950000);
+  });
+
+  it('computes after value', () => {
+    // 30000000 + 1000000 = 31000000
+    expect(result.afterValuePence).toBe(31000000);
+  });
+
+  it('computes profit', () => {
+    // 31000000 - 9950000 = 21050000
+    expect(result.profitPence).toBe(21050000);
+  });
+
+  it('computes ROI', () => {
+    // 21050000 / 9950000 = 2.1155...
+    expect(result.roi).toBeCloseTo(2.1155, 3);
+  });
+});
+
+// ── Lease Option — Cost to Buy ────────────────────────────────────────────────
+
+describe('calcLeaseOptionCostToBuy', () => {
+  it('price + deposit + stamp duty + finder + legal + other', () => {
+    expect(calcLeaseOptionCostToBuy(20000000, 5000000, 1000000, 50000, 300000, 100000)).toBe(26450000);
+  });
+
+  it('handles only price', () => {
+    expect(calcLeaseOptionCostToBuy(20000000)).toBe(20000000);
+  });
+});
+
+// ── Lease Option — ROI ────────────────────────────────────────────────────────
+
+describe('calcLeaseOptionRoi', () => {
+  it('annualIncome / totalInvestment', () => {
+    expect(calcLeaseOptionRoi(1200000, 20000000)).toBeCloseTo(0.06, 5);
+  });
+
+  it('returns 0 when income is 0', () => {
+    expect(calcLeaseOptionRoi(0, 20000000)).toBe(0);
+  });
 });
