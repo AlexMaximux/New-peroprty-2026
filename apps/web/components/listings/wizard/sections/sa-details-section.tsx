@@ -3,6 +3,7 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { saDetailsSectionSchema } from '@propvest/shared';
+import { penceToPounds, poundsToPence, percentToDecimal, decimalToPercent } from '@propvest/shared';
 
 interface Props {
   initialData: any;
@@ -11,9 +12,16 @@ interface Props {
 }
 
 export default function SaDetailsSection({ initialData, onNext, onBack }: Props) {
+  // Convert stored decimal (0-1) → form percentage (0-100) for display
+  const toFormDefaults = (d: any) => ({
+    ...d,
+    airdnaNightlyRatePence: penceToPounds(d.airdnaNightlyRatePence),
+    airdnaOccupancyRate: decimalToPercent(d.airdnaOccupancyRate),
+  });
+
   const form = useForm<any>({
     resolver: zodResolver(saDetailsSectionSchema) as any,
-    defaultValues: initialData ?? {
+    defaultValues: initialData ? toFormDefaults(initialData) : {
       bedrooms: 1,
       bathrooms: 1,
       accommodates: 2,
@@ -30,12 +38,13 @@ export default function SaDetailsSection({ initialData, onNext, onBack }: Props)
 
   const onSubmit = (raw: any) => {
     // Convert NaN → undefined for optional AirDNA fields
+    // Convert percentage (0-100) → decimal (0-1) for storage
     const data = {
       ...raw,
       airdnaNightlyRatePence: raw.airdnaNightlyRatePence != null && !Number.isNaN(raw.airdnaNightlyRatePence)
-        ? raw.airdnaNightlyRatePence : undefined,
+        ? poundsToPence(raw.airdnaNightlyRatePence) : undefined,
       airdnaOccupancyRate: raw.airdnaOccupancyRate != null && !Number.isNaN(raw.airdnaOccupancyRate)
-        ? raw.airdnaOccupancyRate : undefined,
+        ? percentToDecimal(raw.airdnaOccupancyRate) : undefined,
     };
     onNext(data);
   };
@@ -97,11 +106,15 @@ export default function SaDetailsSection({ initialData, onNext, onBack }: Props)
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs text-slate-400 mb-1">Nightly Rate (£) — Suggested</label>
-            <input type="number" {...register('airdnaNightlyRatePence', { valueAsNumber: true })} className="input-field w-full" placeholder="Auto-filled" />
+            <input type="number" min={0} step={0.01} {...register('airdnaNightlyRatePence', { valueAsNumber: true })} className="input-field w-full" placeholder="Auto-filled" />
           </div>
           <div>
             <label className="block text-xs text-slate-400 mb-1">Occupancy (%) — Suggested</label>
-            <input type="number" min={0} max={1} step={0.01} {...register('airdnaOccupancyRate', { valueAsNumber: true })} className="input-field w-full" placeholder="0.70" />
+            <div className="flex gap-2 items-center">
+              <input type="number" min={0} max={100} {...register('airdnaOccupancyRate', { valueAsNumber: true })}
+                className="input-field w-full" placeholder="70" />
+              <span className="text-slate-400">%</span>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2 mt-3">
