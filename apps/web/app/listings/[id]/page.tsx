@@ -1,386 +1,315 @@
-'use client';
+"use client"
 
-import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { getListing, addFavourite, removeFavourite, startConversation } from '@/lib/api';
-import { formatGBP, formatPercent } from '@/lib/utils';
-import { PropertyMap } from '@/components/maps/property-map';
-import { ImageGallery } from '@/components/listings/image-gallery';
+import * as React from "react"
+import { MapPin, Phone, Mail, MessageSquare, CheckCircle2, AlertTriangle, ExternalLink, Edit } from "lucide-react"
+import { ImageGallery } from "@/components/listings/image-gallery"
+import { FinancialTable } from "@/components/listings/financial-table"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { useListing } from "@/hooks/queries/use-listings"
+import { getAgencyProfile, startConversation, sendMessage } from "@/lib/api"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 
-interface ListingDetail {
-  id: string;
-  title: string;
-  description: string | null;
-  category: string;
-  strategy: string | null;
-  status: string;
-  propertyType: string | null;
-  propertyTypeOther: string | null;
-  internalRef: string | null;
-  addressLine1: string;
-  addressLine2: string | null;
-  city: string;
-  postcode: string;
-  buildingNumber: string | null;
-  region: string | null;
-  nation: string | null;
-  regionGroup: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  bedrooms: number | null;
-  bathrooms: number | null;
-  floorArea: number | null;
-  hasLivingRoom: boolean | null;
-  hasGarden: boolean | null;
-  gardenNotes: string | null;
-  parking: string | null;
-  furnishedStatus: string | null;
-  furnishingQuality: string | null;
-  furnishingNotes: string | null;
-  isVacant: boolean | null;
-  isTenanted: boolean | null;
-  isLicensed: boolean | null;
-  needsRefurb: boolean | null;
-  refurbQuoteType: string | null;
-  refurbCostPence: number | null;
-  askingPricePence: number | null;
-  marketValuePence: number | null;
-  estimatedRoi: number | null;
-  strategySpecificData: Record<string, unknown> | null;
-  publishedAt: string | null;
-  createdAt: string;
-  media: { id: string; kind: string; fileKey: string; order: number }[];
-  hmoRooms: { id: string; name: string; roomType: string; monthlyRentPence: number }[];
-  portfolioAssets: { id: string; name: string; valuePence: number | null; notes: string | null }[];
-  agencyProfile: {
-    companyName: string;
-    contactName: string;
-    phone: string;
-    user: { displayName: string };
-  } | null;
+interface Props {
+  params: Promise<{ id: string }>
 }
 
-export default function ListingDetailPage() {
-  const params = useParams();
-  const router = useRouter();
-  const [listing, setListing] = useState<ListingDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [isFavourite, setIsFavourite] = useState(false);
-  const [sendingEnquiry, setSendingEnquiry] = useState(false);
+export default function ListingDetailPage({ params }: Props) {
+  const { id } = React.use(params)
+  const { data: listing, isLoading, error } = useListing(id)
 
-  useEffect(() => {
-    const id = params?.id as string;
-    if (!id) return;
-    getListing(id)
-      .then(setListing)
-      .catch((e) => setError(e.message ?? 'Failed to load listing'))
-      .finally(() => setLoading(false));
-  }, [params?.id]);
+  const [agencyProfile, setAgencyProfile] = React.useState<any>(null)
+  const router = useRouter()
+  const [isMessaging, setIsMessaging] = React.useState(false)
+  
+  React.useEffect(() => {
+    // Fetch agency profile for the listing
+    getAgencyProfile()
+      .then(data => setAgencyProfile(data))
+      .catch(() => {
+        // Silently fail - not critical for listing display
+      })
+  }, [])
 
-  const handleEnquiry = async () => {
-    if (!params?.id || sendingEnquiry) return;
-    setSendingEnquiry(true);
+  const handleMessageAgent = async () => {
+    if (!listing) return
     try {
-      const conv = await startConversation(params.id as string);
-      router.push(`/messages/${conv.id}`);
-    } catch {
-      router.push('/login');
-    } finally {
-      setSendingEnquiry(false);
-    }
-  };
-
-  const toggleFav = async () => {
-    if (!params?.id) return;
-    try {
-      if (isFavourite) {
-        await removeFavourite(params.id as string);
-        setIsFavourite(false);
-      } else {
-        await addFavourite(params.id as string);
-        setIsFavourite(true);
+      setIsMessaging(true)
+      const conv = await startConversation(listing.id)
+      
+      // Auto-send initial context message if conversation is new
+      if (conv._count?.messages === 0 || !conv._count) {
+        const initialMessage = `Hi, I am interested in your listing: ${listing.title} (${listing.postcode}).\n\nIs this deal still available?`
+        await sendMessage(conv.id, initialMessage)
       }
-    } catch {
-      // Not authenticated — redirect to login
-      router.push('/login');
+      
+      router.push(`/messages?conversationId=${conv.id}`)
+    } catch (err) {
+      console.error("Failed to message agent:", err)
+    } finally {
+      setIsMessaging(false)
     }
-  };
+  }
 
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className="page-container">
-        <div className="glass-card animate-pulse p-8">
-          <div className="mb-4 h-8 w-1/3 rounded bg-deep-700" />
-          <div className="mb-6 h-64 rounded bg-deep-700" />
-          <div className="space-y-2">
-            <div className="h-4 w-3/4 rounded bg-deep-700" />
-            <div className="h-4 w-1/2 rounded bg-deep-700" />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-pulse">
+        <div className="h-64 bg-slate-800/40 rounded-xl w-full" />
+        <div className="h-8 bg-slate-800/40 rounded w-1/3" />
+        <div className="h-4 bg-slate-800/40 rounded w-1/2" />
+        <div className="grid gap-8 lg:grid-cols-[2fr_1fr]">
+          <div className="space-y-4">
+            <div className="h-24 bg-slate-800/40 rounded-xl" />
+            <div className="h-48 bg-slate-800/40 rounded-xl" />
           </div>
+          <div className="h-64 bg-slate-800/40 rounded-xl" />
         </div>
       </div>
-    );
+    )
   }
 
   if (error || !listing) {
     return (
-      <div className="page-container">
-        <div className="glass-card p-8 text-center">
-          <p className="text-lg text-red-400">{error || 'Listing not found'}</p>
-          <button onClick={() => router.back()} className="btn-secondary mt-4 text-sm">
-            Go Back
-          </button>
-        </div>
+      <div className="max-w-md mx-auto py-20 text-center space-y-4">
+        <AlertTriangle className="w-12 h-12 text-[var(--error)] mx-auto" />
+        <h2 className="text-xl font-bold text-[var(--text-primary)]">Listing Not Found</h2>
+        <p className="text-xs text-[var(--text-muted)]">Could not load the requested property. Please verify the URL.</p>
+        <Link href="/browse" className="inline-block px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-black font-bold text-xs rounded-lg transition-all">
+          Back to Browse
+        </Link>
       </div>
-    );
+    )
   }
 
-  const categoryLabel = listing.category.split('_').join(' ');
+  const images = listing.media && listing.media.length > 0
+    ? listing.media.map((m: any) => m.url || "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=600&q=80")
+    : ["https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=600&q=80"]
+
+  const spec = (listing.strategySpecificData || {}) as Record<string, any>
+
+  const finderFeePence = typeof spec.finderFeePence === 'number' ? spec.finderFeePence : 0
+  const refurbCostPence = typeof listing.refurbCostPence === 'number' ? listing.refurbCostPence : 0
+  const depositPence = typeof spec.depositPence === 'number' ? spec.depositPence : 0
+  const rentToLandlordPence = typeof spec.rentToLandlordPence === 'number' ? spec.rentToLandlordPence : 0
+
+  const monthlyRentPence = listing.hmoRooms && listing.hmoRooms.length > 0
+    ? listing.hmoRooms.reduce((sum: number, r: any) => sum + (r.monthlyRentPence || 0), 0)
+    : rentToLandlordPence
+
+  const moneyNeededPence = rentToLandlordPence + depositPence + finderFeePence + refurbCostPence
+
+  const bmvDiscountPence = listing.marketValuePence && listing.askingPricePence && listing.marketValuePence > listing.askingPricePence
+    ? listing.marketValuePence - listing.askingPricePence
+    : 0
+
+  const financialRows = [
+    { label: "Market Value", value: listing.marketValuePence || 0, type: "currency" as const },
+    { label: "Asking Price", value: listing.askingPricePence || 0, type: "currency" as const, highlight: "emerald" as const },
+    ...(bmvDiscountPence > 0 ? [{ label: "BMV Discount", value: bmvDiscountPence, type: "currency" as const, highlight: "amber" as const }] : []),
+    { label: "Renovation Cost", value: refurbCostPence, type: "currency" as const, highlight: "warning" as const },
+    { label: "Sourcing Fee", value: finderFeePence, type: "currency" as const },
+    { label: "Total Capital In", value: moneyNeededPence, type: "currency" as const, highlight: "bold" as const },
+    { label: "", value: 0, isDivider: true },
+    { label: "Gross Yield", value: listing.estimatedRoi || 0, type: "percentage" as const, highlight: "emerald" as const },
+    { label: "Monthly Rental Income", value: monthlyRentPence, type: "currency" as const },
+  ]
+
+  const isOwner = !!(agencyProfile && listing && listing.agencyProfile && agencyProfile.companyName === listing.agencyProfile.companyName)
+
+  const strategyBadges = [
+    { label: listing.strategy || "HMO", className: "bg-purple-500/20 text-purple-400 border-purple-500/30" },
+    ...(listing.isLicensed ? [{ label: "Licensed", className: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" }] : []),
+    ...(listing.needsRefurb ? [{ label: "Refurb Needed", className: "bg-amber-500/20 text-amber-400 border-amber-500/30" }] : []),
+  ]
+
+  const agencyName = listing.agencyProfile?.companyName || listing.agencyProfile?.contactName || "Verified Agency"
+  const agencyContact = listing.agencyProfile?.contactName || "Agency Representative"
+  const agencyPhone = listing.agencyProfile?.phone || "+44 20 7123 4567"
 
   return (
-    <div className="page-container">
-      {/* Breadcrumb */}
-      <div className="mb-4 flex items-center gap-2 text-xs text-slate-500">
-        <button onClick={() => router.push('/browse')} className="hover:text-white transition">
-          Browse
-        </button>
-        <span>/</span>
-        <span className="text-slate-300">{listing.title}</span>
-      </div>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      {/* Image Gallery */}
+      <ImageGallery images={images} className="w-full" />
 
-      {/* Header */}
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-bold leading-tight sm:text-3xl">{listing.title}</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            {[listing.buildingNumber, listing.addressLine1, listing.addressLine2, listing.city, listing.region, listing.postcode]
-              .filter(Boolean)
-              .join(', ')}
-          </p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span className="badge badge-green">{categoryLabel}</span>
-            {listing.strategy && <span className="badge badge-yellow">{listing.strategy}</span>}
-            {listing.propertyType && (
-              <span className="badge badge-blue">{listing.propertyType.split('_').join(' ')}</span>
+      {/* Two-column layout */}
+      <div className="grid gap-8 lg:grid-cols-[2fr_1fr]">
+        {/* Left Column */}
+        <div className="space-y-6">
+          {/* Title & Address */}
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+            <div>
+              <h1 className="font-display text-3xl sm:text-4xl font-normal text-[var(--text-primary)] mb-2">
+                {listing.title}
+              </h1>
+              <div className="flex flex-wrap items-center gap-4 text-[var(--text-muted)]">
+                <span className="flex items-center gap-1">
+                  <MapPin className="w-4 h-4" aria-hidden="true" />
+                  <span>{listing.addressLine1 || "Address"}, {listing.postcode}</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <ExternalLink className="w-4 h-4" aria-hidden="true" />
+                  <a href={`https://maps.google.com/?q=${encodeURIComponent((listing.addressLine1 || "") + " " + listing.postcode)}`} target="_blank" rel="noopener noreferrer" className="hover:text-[var(--accent)] transition-colors">
+                    View on Google Maps
+                  </a>
+                </span>
+              </div>
+            </div>
+
+            {isOwner && (
+              <Link
+                href={`/agency?tab=edit-listing&id=${listing.id}`}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-black font-bold text-xs rounded-lg transition-all"
+              >
+                <Edit className="w-3.5 h-3.5" />
+                Edit Listing
+              </Link>
             )}
-            {listing.propertyTypeOther && (
-              <span className="badge badge-blue">{listing.propertyTypeOther}</span>
-            )}
-            {listing.internalRef && (
-              <span className="badge badge-outline">Ref: {listing.internalRef}</span>
-            )}
-            {listing.needsRefurb && <span className="badge badge-yellow">Needs Refurb</span>}
           </div>
-        </div>
-        <button
-          onClick={toggleFav}
-          className={`btn-secondary shrink-0 !px-3 !py-2 text-lg ${isFavourite ? 'text-red-400 border-red-400/30' : ''}`}
-          title={isFavourite ? 'Remove from favourites' : 'Add to favourites'}
-        >
-          {isFavourite ? '❤' : '♡'}
-        </button>
-      </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Main content */}
-        <div className="space-y-6 lg:col-span-2">
-          {/* Media gallery */}
-          <div className="glass-card overflow-hidden p-5">
-            <ImageGallery images={listing.media} />
+          {/* Strategy Badges */}
+          <div className="flex flex-wrap gap-2">
+            {strategyBadges.map((badge) => (
+              <Badge key={badge.label} className={badge.className}>
+                {badge.label}
+              </Badge>
+            ))}
           </div>
 
           {/* Description */}
-          {listing.description && (
-            <div className="glass-card p-5">
-              <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-slate-400">Description</h2>
-              <p className="text-sm leading-relaxed text-slate-300">{listing.description}</p>
-            </div>
-          )}
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-6">
+            <p className="text-[var(--text-muted)] leading-relaxed">{listing.description || "No description provided."}</p>
+          </div>
 
-          {/* HMO Rooms */}
-          {listing.hmoRooms.length > 0 && (
-            <div className="glass-card p-5">
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-400">
-                Room Configuration ({listing.hmoRooms.length})
-              </h2>
-              <div className="space-y-2">
-                {listing.hmoRooms.map((room) => (
-                  <div key={room.id} className="flex items-center justify-between rounded-lg bg-deep-800 px-3 py-2">
-                    <div>
-                      <p className="text-sm font-medium">{room.name}</p>
-                      <p className="text-xs text-slate-500">{room.roomType.split('_').join(' ')}</p>
-                    </div>
-                    <span className="text-sm font-semibold text-gold-400">
-                      {formatGBP(room.monthlyRentPence)}/mo
-                    </span>
-                  </div>
-                ))}
-                <div className="flex items-center justify-between rounded-lg bg-gold-500/5 px-3 py-2">
-                  <span className="text-sm font-semibold">Total Monthly Income</span>
-                  <span className="text-sm font-bold text-gold-400">
-                    {formatGBP(listing.hmoRooms.reduce((s, r) => s + r.monthlyRentPence, 0))}/mo
+          {/* Financial Breakdown */}
+          <div>
+            <h2 className="font-display text-xl font-normal text-[var(--text-primary)] mb-4">Financial Breakdown</h2>
+            <FinancialTable rows={financialRows} />
+          </div>
+
+          {/* Property Details (from form) */}
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-6">
+            <h2 className="font-display text-xl font-normal text-[var(--text-primary)] mb-4">Property & Details</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-8 text-sm">
+              {listing.propertyType && (
+                <div>
+                  <span className="text-[var(--text-muted)] block mb-1">Property Type</span>
+                  <span className="text-[var(--text-primary)] font-medium capitalize">{listing.propertyType}</span>
+                </div>
+              )}
+              {spec.furnished && (
+                <div>
+                  <span className="text-[var(--text-muted)] block mb-1">Furnishing</span>
+                  <span className="text-[var(--text-primary)] font-medium capitalize">{spec.furnished} {spec.furnishQuality ? `(${spec.furnishQuality} quality)` : ''}</span>
+                </div>
+              )}
+              {spec.statusLicensed !== undefined && (
+                <div>
+                  <span className="text-[var(--text-muted)] block mb-1">License Status</span>
+                  <span className="text-[var(--text-primary)] font-medium">
+                    {spec.statusLicensed ? "Licensed" : `No License (${spec.licenseStatusReason || 'N/A'})`}
                   </span>
                 </div>
-              </div>
-            </div>
-          )}
-
-          {/* Portfolio Assets */}
-          {listing.portfolioAssets.length > 0 && (
-            <div className="glass-card p-5">
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-400">
-                Portfolio Assets
-              </h2>
-              <div className="space-y-2">
-                {listing.portfolioAssets.map((asset) => (
-                  <div key={asset.id} className="flex items-center justify-between rounded-lg bg-deep-800 px-3 py-2">
-                    <div>
-                      <p className="text-sm font-medium">{asset.name}</p>
-                      {asset.notes && <p className="text-xs text-slate-500">{asset.notes}</p>}
-                    </div>
-                    {asset.valuePence != null && (
-                      <span className="text-sm font-semibold text-gold-400">{formatGBP(asset.valuePence)}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Location map */}
-          <div className="glass-card overflow-hidden p-0">
-            <div className="p-5 pb-3">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Location</h2>
-            </div>
-            {listing.latitude && listing.longitude ? (
-              <PropertyMap
-                latitude={listing.latitude}
-                longitude={listing.longitude}
-                address={`${listing.postcode}, ${listing.city}`}
-                className="h-56"
-              />
-            ) : (
-              <div className="flex h-48 items-center justify-center bg-deep-800">
-                <div className="text-center text-slate-500">
-                  <p className="text-sm">{listing.postcode}, {listing.city}</p>
-                  <p className="mt-1 text-xs text-slate-600">No map coordinates available</p>
+              )}
+              {spec.statusTenanted !== undefined && (
+                <div>
+                  <span className="text-[var(--text-muted)] block mb-1">Tenancy</span>
+                  <span className="text-[var(--text-primary)] font-medium">
+                    {spec.statusTenanted ? `Tenanted (${spec.tenancyStatus || 'Details unknown'})` : "Vacant"}
+                  </span>
                 </div>
-              </div>
-            )}
+              )}
+              {spec.tenancyDetails && (
+                <div className="col-span-1 sm:col-span-2">
+                  <span className="text-[var(--text-muted)] block mb-1">Tenancy Details</span>
+                  <span className="text-[var(--text-primary)] font-medium">{spec.tenancyDetails}</span>
+                </div>
+              )}
+              {spec.statusNeedsRefurb !== undefined && (
+                <div>
+                  <span className="text-[var(--text-muted)] block mb-1">Refurbishment</span>
+                  <span className="text-[var(--text-primary)] font-medium">
+                    {spec.statusNeedsRefurb ? `Needed (${spec.refurbIsQuoted ? 'Quoted' : 'Estimated'} cost)` : "Not Needed"}
+                  </span>
+                </div>
+              )}
+              {listing.hmoRooms && listing.hmoRooms.length > 0 && (
+                <div className="col-span-1 sm:col-span-2 mt-2">
+                  <span className="text-[var(--text-muted)] block mb-2 font-bold">Rooms Breakdown</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {listing.hmoRooms.map((room: any, idx: number) => (
+                      <div key={idx} className="bg-[var(--bg-secondary)] p-2 rounded flex justify-between items-center border border-[var(--border)]">
+                        <span className="text-[var(--text-primary)]">{room.name || room.roomType || `Room ${idx+1}`}</span>
+                        <span className="font-mono text-[var(--accent)] font-bold">£{(room.monthlyRentPence || 0) / 100}/mo</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Strategy-specific data */}
-          {listing.strategySpecificData && Object.keys(listing.strategySpecificData).length > 0 ? (
-            <div className="glass-card p-5">
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-400">
-                Deal Terms
-              </h2>
-              <div className="space-y-2 text-sm">
-                {(listing.strategySpecificData as any).rentTerm != null ? (
-                  <MetricRow label="Rent Term" value={String((listing.strategySpecificData as any).rentTerm)} />
-                ) : null}
-                {(listing.strategySpecificData as any).contractLengthMonths != null ? (
-                  <MetricRow label="Contract Length" value={`${(listing.strategySpecificData as any).contractLengthMonths} months`} />
-                ) : null}
-                {(listing.strategySpecificData as any).finderFeePence != null ? (
-                  <MetricRow label="Finder Fee" value={formatGBP((listing.strategySpecificData as any).finderFeePence as number)} gold />
-                ) : null}
-                {(listing.strategySpecificData as any).agencyDetails ? (
-                  <div className="pt-2 border-t border-deep-700">
-                    <p className="text-xs text-slate-500 mb-1">Agency Notes</p>
-                    <p className="text-sm text-slate-300">{(listing.strategySpecificData as any).agencyDetails}</p>
-                  </div>
-                ) : null}
-                {(listing.strategySpecificData as any).notes ? (
-                  <div className="pt-2 border-t border-deep-700">
-                    <p className="text-xs text-slate-500 mb-1">Additional Notes</p>
-                    <p className="text-sm text-slate-300">{(listing.strategySpecificData as any).notes}</p>
-                  </div>
-                ) : null}
-              </div>
+          {/* Due Diligence Banner */}
+          <div className="bg-[var(--warning-subtle)] border border-[var(--warning)]/30 rounded-xl p-4 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-[var(--warning)] flex-shrink-0 mt-0.5" aria-hidden="true" />
+            <div>
+              <p className="font-medium text-[var(--warning)] mb-1">Due Diligence Notice</p>
+              <p className="text-sm text-[var(--text-muted)]">
+                Always conduct independent due diligence. PropVest connects buyers with agencies — we do not verify property values or guarantee returns.
+              </p>
             </div>
-          ) : null}
+          </div>
         </div>
 
-        {/* Sidebar */}
-        <div className="space-y-4">
-          {/* Key metrics */}
-          <div className="glass-card p-5">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-400">Key Metrics</h2>
-            <div className="space-y-3">
-              {listing.askingPricePence != null && (
-                <MetricRow label="Asking Price" value={formatGBP(listing.askingPricePence)} gold />
-              )}
-              {listing.marketValuePence != null && (
-                <MetricRow label="Market Value" value={formatGBP(listing.marketValuePence)} gold />
-              )}
-              {listing.estimatedRoi != null && (
-                <MetricRow label="Estimated ROI" value={formatPercent(Number(listing.estimatedRoi) * 0.01)} green />
-              )}
-              {listing.refurbCostPence != null && (
-                <MetricRow label="Refurb Cost" value={formatGBP(listing.refurbCostPence)} />
-              )}
-              {listing.bedrooms != null && <MetricRow label="Bedrooms" value={String(listing.bedrooms)} />}
-              {listing.bathrooms != null && <MetricRow label="Bathrooms" value={String(listing.bathrooms)} />}
-              {listing.floorArea != null && <MetricRow label="Floor Area" value={`${listing.floorArea} sq ft`} />}
-              {listing.furnishedStatus && (
-                <MetricRow label="Furnished" value={listing.furnishedStatus.split('_').join(' ')} />
-              )}
-              <MetricRow label="Status" value={listing.status} />
-              <MetricRow label="Vacant" value={listing.isVacant ? 'Yes' : listing.isVacant === false ? 'No' : '—'} />
-              <MetricRow label="Tenanted" value={listing.isTenanted ? 'Yes' : listing.isTenanted === false ? 'No' : '—'} />
-              <MetricRow label="Licensed" value={listing.isLicensed ? 'Yes' : listing.isLicensed === false ? 'No' : '—'} />
-              {listing.parking && <MetricRow label="Parking" value={listing.parking} />}
-              {listing.hasGarden && <MetricRow label="Garden" value={listing.gardenNotes ?? 'Yes'} />}
-              {listing.hasLivingRoom != null && (
-                <MetricRow label="Living Room" value={listing.hasLivingRoom ? 'Yes' : 'No'} />
-              )}
-              {listing.nation && <MetricRow label="Nation" value={listing.nation.split('_').join(' ')} />}
-              {listing.furnishingQuality && (
-                <MetricRow label="Furnishing Quality" value={listing.furnishingQuality} />
-              )}
-              {listing.furnishingNotes && (
-                <MetricRow label="Furnishing Notes" value={listing.furnishingNotes} />
-              )}
-              {listing.refurbQuoteType && (
-                <MetricRow label="Refurb Quote" value={listing.refurbQuoteType.split('_').join(' ')} />
-              )}
+        {/* Right Column - Sticky Sidebar */}
+        <div className="lg:sticky lg:top-24">
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-6 space-y-6">
+            {/* Agency Card */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-full bg-[var(--accent)] flex items-center justify-center text-white font-bold text-lg">
+                  {agencyName.split(" ").map((w) => w[0]).join("")}
+                </div>
+                <div>
+                  <p className="font-semibold text-[var(--text-primary)]">{agencyName}</p>
+                  <div className="flex items-center gap-1 mt-0.5">
+                    <CheckCircle2 className="w-4 h-4 text-[var(--accent)]" aria-hidden="true" />
+                    <span className="text-sm text-[var(--accent)] font-medium">Verified Agency</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-[var(--border)]">
+                <p className="text-sm text-[var(--text-muted)]">Contact: {agencyContact}</p>
+                <p className="flex items-center gap-2 text-sm text-[var(--text-primary)] mt-1">
+                  <Phone className="w-4 h-4 text-[var(--text-muted)]" aria-hidden="true" />
+                  {agencyPhone}
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="space-y-2 pt-2">
+                <Button className="w-full justify-center gap-2" variant="outline">
+                  <Phone className="w-4 h-4" />
+                  Call Agent
+                </Button>
+                <Button className="w-full justify-center gap-2" variant="outline">
+                  <Mail className="w-4 h-4" />
+                  Email Agent
+                </Button>
+                <Button 
+                  className="w-full justify-center gap-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)]"
+                  onClick={handleMessageAgent}
+                  disabled={isMessaging}
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  {isMessaging ? "Connecting..." : "Message Agent"}
+                </Button>
+              </div>
             </div>
           </div>
-
-          {/* Agency info */}
-          <div className="glass-card p-5">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-400">Agency</h2>
-            <div className="space-y-2">
-              <p className="text-sm font-medium">{listing.agencyProfile?.companyName ?? '—'}</p>
-              <p className="text-xs text-slate-400">{listing.agencyProfile?.user.displayName}</p>
-              {listing.agencyProfile?.phone && (
-                <p className="text-xs text-slate-500">{listing.agencyProfile.phone}</p>
-              )}
-            </div>
-          </div>
-
-          {/* Enquire button */}
-          <button
-            onClick={handleEnquiry}
-            disabled={sendingEnquiry}
-            className="btn-primary w-full text-sm"
-          >
-            {sendingEnquiry ? 'Starting conversation...' : 'Send Enquiry'}
-          </button>
         </div>
       </div>
     </div>
-  );
-}
-
-function MetricRow({ label, value, gold, green }: { label: string; value: string; gold?: boolean; green?: boolean }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-xs text-slate-400">{label}</span>
-      <span className={`text-xs font-medium ${gold ? 'text-gold-400' : green ? 'text-emerald-400' : 'text-white'}`}>
-        {value}
-      </span>
-    </div>
-  );
+  )
 }

@@ -99,7 +99,7 @@ export class AdminService {
   async moderateListing(
     adminUserId: string,
     listingId: string,
-    action: 'UNPUBLISH' | 'REINSTATE',
+    action: 'UNPUBLISH' | 'REINSTATE' | 'APPROVE',
     reason?: string,
   ) {
     const listing = await this.prisma.listing.findUnique({
@@ -113,7 +113,7 @@ export class AdminService {
     if (action === 'UNPUBLISH') {
       data.status = 'ARCHIVED';
       data.archivedAt = new Date();
-    } else {
+    } else if (action === 'REINSTATE' || action === 'APPROVE') {
       data.status = 'PUBLISHED';
       data.archivedAt = null;
       data.publishedAt = new Date();

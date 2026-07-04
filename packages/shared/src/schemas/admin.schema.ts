@@ -7,7 +7,7 @@ export const rejectAgencySchema = z.object({
 });
 
 export const moderateListingSchema = z.object({
-  action: z.enum(['UNPUBLISH', 'REINSTATE']),
+  action: z.enum(['UNPUBLISH', 'REINSTATE', 'APPROVE']),
   reason: z.string().optional(),
 });
 

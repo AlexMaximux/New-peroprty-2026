@@ -1,0 +1,47 @@
+EXPRESS ROUTES
+==============
+
+api
+└─ v1
+│ ├─ admin
+│ │ ├─ agencies [GET]
+│ │ │ └─ :id [GET]
+│ │ │ │ ├─ approve [POST]
+│ │ │ │ └─ reject [POST]
+│ │ ├─ audit-log [GET]
+│ │ └─ listings [GET]
+│ │ │ └─ :id
+│ │ │ │ └─ moderate [POST]
+│ ├─ agency
+│ │ ├─ documents [GET]
+│ │ │ ├─ :id
+│ │ │ │ └─ download-url [GET]
+│ │ │ ├─ confirm [POST]
+│ │ │ └─ upload-url [POST]
+│ │ └─ profile [GET, POST]
+│ ├─ auth
+│ │ ├─ login [POST]
+│ │ ├─ logout [POST]
+│ │ ├─ me [GET]
+│ │ ├─ refresh [POST]
+│ │ └─ register [POST]
+│ ├─ conversations [GET, POST]
+│ │ ├─ :id
+│ │ │ ├─ messages [GET, POST]
+│ │ │ └─ read [POST]
+│ │ └─ unread-count [GET]
+│ ├─ favourites [GET]
+│ │ └─ :listingId [DELETE, POST]
+│ ├─ integrations
+│ │ └─ geocode [GET]
+│ └─ listings [GET, POST]
+│ │ ├─ :id [GET, PATCH]
+│ │ │ ├─ media
+│ │ │ │ ├─ :mediaId [DELETE]
+│ │ │ │ ├─ confirm [POST]
+│ │ │ │ └─ presign [POST]
+│ │ │ └─ publish [POST]
+│ │ └─ search [GET]
+health [GET]
+
+Total routes: 32

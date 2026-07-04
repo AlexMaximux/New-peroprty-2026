@@ -32,7 +32,7 @@ export const listingStrategySchema = z.enum([
 ]);
 export type ListingStrategy = z.infer<typeof listingStrategySchema>;
 
-export const listingStatusSchema = z.enum(['DRAFT', 'PUBLISHED', 'RESERVED', 'SOLD', 'ARCHIVED']);
+export const listingStatusSchema = z.enum(['DRAFT', 'PENDING', 'PUBLISHED', 'RESERVED', 'SOLD', 'ARCHIVED']);
 export type ListingStatus = z.infer<typeof listingStatusSchema>;
 
 export const propertyTypeSchema = z.enum(['TERRACED', 'FLAT', 'DETACHED', 'SEMI_DETACHED', 'OTHER']);
@@ -58,6 +58,14 @@ export type Nation = z.infer<typeof nationSchema>;
 
 export const regionGroupSchema = z.enum(['NORTH', 'SOUTH']);
 export type RegionGroup = z.infer<typeof regionGroupSchema>;
+
+export const nearbyPlaceSchema = z.object({
+  name: z.string(),
+  place_id: z.string(),
+  types: z.array(z.string()).optional(),
+  distanceMiles: z.number().optional(),
+});
+export type NearbyPlace = z.infer<typeof nearbyPlaceSchema>;
 
 export const ownershipTypeSchema = z.enum(['FREEHOLD', 'LEASEHOLD']);
 export type OwnershipType = z.infer<typeof ownershipTypeSchema>;
@@ -110,6 +118,11 @@ export const listingBaseSchema = z.object({
   needsRefurb: z.boolean().optional(),
   refurbQuoteType: refurbQuoteTypeSchema.optional(),
   refurbCostPence: z.number().int().nonnegative().optional(),
+
+  // Financial Summary
+  askingPricePence: z.number().int().nonnegative().optional(),
+  marketValuePence: z.number().int().nonnegative().optional(),
+  estimatedRoi: z.number().optional(),
 });
 export type ListingBaseDto = z.infer<typeof listingBaseSchema>;
 
@@ -356,6 +369,9 @@ export const createListingSchema = z.object({
 
   // Strategy-specific JSONB — validated at runtime by getStrategyDataSchema
   strategySpecificData: z.record(z.unknown()).optional(),
+
+  // Nearby POIs
+  nearbyPlaces: z.array(nearbyPlaceSchema).optional(),
 });
 export type CreateListingDto = z.infer<typeof createListingSchema>;
 
@@ -372,6 +388,7 @@ export const updateListingSchema = z.object({
   portfolioAssets: z.array(portfolioAssetSchema).optional(),
   media: z.array(listingMediaSchema).optional(),
   strategySpecificData: z.record(z.unknown()).optional(),
+  nearbyPlaces: z.array(nearbyPlaceSchema).optional(),
 });
 export type UpdateListingDto = z.infer<typeof updateListingSchema>;
 

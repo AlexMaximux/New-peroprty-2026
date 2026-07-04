@@ -9,10 +9,12 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { MessagingService } from './messaging.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../common/decorators/current-user.decorator';
 
+@ApiTags('conversations')
 @Controller('conversations')
 @UseGuards(JwtAuthGuard)
 export class MessagingController {
@@ -23,6 +25,9 @@ export class MessagingController {
    */
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Start a conversation for a listing' })
+  @ApiResponse({ status: 201, description: 'Conversation created or existing found' })
   async startConversation(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: { listingId: string },
@@ -34,6 +39,9 @@ export class MessagingController {
    * List user's conversations.
    */
   @Get()
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'List user conversations' })
+  @ApiResponse({ status: 200, description: 'List of conversations' })
   async listConversations(@CurrentUser() user: AuthenticatedUser) {
     return this.messagingService.getConversations(user.sub);
   }
@@ -42,6 +50,9 @@ export class MessagingController {
    * Get messages in a conversation.
    */
   @Get(':id/messages')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Get messages in a conversation' })
+  @ApiResponse({ status: 200, description: 'Paginated messages' })
   async getMessages(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
@@ -61,6 +72,9 @@ export class MessagingController {
    */
   @Post(':id/messages')
   @HttpCode(HttpStatus.CREATED)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Send a message in a conversation' })
+  @ApiResponse({ status: 201, description: 'Message sent successfully' })
   async sendMessage(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
@@ -74,6 +88,9 @@ export class MessagingController {
    */
   @Post(':id/read')
   @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Mark messages as read' })
+  @ApiResponse({ status: 200, description: 'Messages marked as read' })
   async markAsRead(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
@@ -86,6 +103,9 @@ export class MessagingController {
    * Get unread message count.
    */
   @Get('unread-count')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Get unread message count' })
+  @ApiResponse({ status: 200, description: 'Unread count' })
   async unreadCount(@CurrentUser() user: AuthenticatedUser) {
     const count = await this.messagingService.getUnreadCount(user.sub);
     return { count };

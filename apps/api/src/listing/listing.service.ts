@@ -53,12 +53,13 @@ export class ListingService {
       validatedStrategyData = result.data as Record<string, unknown>;
     }
 
-    // 4a. Promote pricing fields from strategySpecificData to dedicated columns
+    // 4a. Promote pricing fields from strategySpecificData or base to dedicated columns
     // These direct Prisma columns are what the detail page + search filters read.
-    let promotedAskingPrice: number | undefined;
-    let promotedMarketValue: number | undefined;
+    let promotedAskingPrice = parsed.base.askingPricePence;
+    let promotedMarketValue = parsed.base.marketValuePence;
     let promotedEstimatedValue: number | undefined;
-    let promotedRoi: number | undefined;
+    let promotedRoi = parsed.base.estimatedRoi;
+
     if (validatedStrategyData) {
       const sd = validatedStrategyData as Record<string, unknown>;
       if (typeof sd.askingPricePence === 'number') promotedAskingPrice = sd.askingPricePence;
@@ -111,6 +112,7 @@ export class ListingService {
         estimatedValuePence: promotedEstimatedValue,
         estimatedRoi: promotedRoi,
         strategySpecificData: (validatedStrategyData ?? undefined) as any,
+        nearbyPlaces: (parsed.nearbyPlaces as any) ?? undefined,
         hmoRooms: parsed.hmoRooms.length > 0 ? {
           create: parsed.hmoRooms.map((room) => ({
             name: room.name,
@@ -191,8 +193,15 @@ export class ListingService {
     if (parsed.strategy !== undefined) updateData.strategy = parsed.strategy as any;
     if (parsed.strategySpecificData !== undefined) updateData.strategySpecificData = validatedStrategyData as any;
 
-    // 6a. Promote pricing fields from strategySpecificData to dedicated columns
+    // 6a. Promote pricing fields from strategySpecificData or base to dedicated columns
     // These direct Prisma columns are what the detail page + search filters read.
+    if (parsed.base) {
+      const b = parsed.base;
+      if (b.askingPricePence !== undefined) updateData.askingPricePence = b.askingPricePence;
+      if (b.marketValuePence !== undefined) updateData.marketValuePence = b.marketValuePence;
+      if (b.estimatedRoi !== undefined) updateData.estimatedRoi = b.estimatedRoi;
+    }
+
     if (validatedStrategyData) {
       const sd = validatedStrategyData as Record<string, unknown>;
       if (typeof sd.askingPricePence === 'number') updateData.askingPricePence = sd.askingPricePence;
@@ -234,6 +243,10 @@ export class ListingService {
       if (b.needsRefurb !== undefined) updateData.needsRefurb = b.needsRefurb;
       if (b.refurbQuoteType !== undefined) updateData.refurbQuoteType = b.refurbQuoteType as any;
       if (b.refurbCostPence !== undefined) updateData.refurbCostPence = b.refurbCostPence;
+    }
+
+    if (parsed.nearbyPlaces !== undefined) {
+      updateData.nearbyPlaces = parsed.nearbyPlaces as any;
     }
 
     // 6. Update listing
@@ -286,7 +299,7 @@ export class ListingService {
       throw new ForbiddenException('User does not have an agency profile');
     }
 
-    return this.prisma.listing.findMany({
+    const listings = await this.prisma.listing.findMany({
       where: { agencyProfileId: agencyProfile.id },
       include: {
         media: { take: 1, orderBy: { order: 'asc' } },
@@ -295,6 +308,14 @@ export class ListingService {
       },
       orderBy: { updatedAt: 'desc' },
     });
+
+    for (const listing of listings) {
+      if (listing.media.length > 0) {
+        (listing as any).media = await this.hydrateMediaUrls(listing.media);
+      }
+    }
+
+    return listings;
   }
 
   /**
@@ -346,7 +367,7 @@ export class ListingService {
     }
 
     // Status exclusions — start with ARCHIVED already excluded above
-    const excludeStatuses = ['DRAFT'];
+    const excludeStatuses = ['DRAFT', 'PENDING'];
     if (parsed.excludeSold) excludeStatuses.push('SOLD');
     if (parsed.excludeReserved) excludeStatuses.push('RESERVED');
     // Merge with existing status filter (the `not: 'ARCHIVED'` above)
@@ -373,6 +394,7 @@ export class ListingService {
               companyName: true,
               contactName: true,
               phone: true,
+              verificationStatus: true,
               user: { select: { displayName: true } },
             },
           },
@@ -382,8 +404,18 @@ export class ListingService {
       this.prisma.listing.count({ where }),
     ]);
 
+    // Hydrate media URLs for all search results
+    const hydratedData = await Promise.all(
+      data.map(async (listing) => {
+        if (listing.media.length > 0) {
+          (listing as any).media = await this.hydrateMediaUrls(listing.media);
+        }
+        return listing;
+      })
+    );
+
     return {
-      data,
+      data: hydratedData,
       meta: {
         total,
         page: parsed.page,
@@ -414,9 +446,15 @@ export class ListingService {
       throw new BadRequestException('Only draft listings can be published');
     }
 
+    const isVerified = listing.agencyProfile.verificationStatus === 'APPROVED';
+    const targetStatus = isVerified ? 'PUBLISHED' : 'PENDING';
+
     return this.prisma.listing.update({
       where: { id: listingId },
-      data: { status: 'PUBLISHED', publishedAt: new Date() },
+      data: { 
+        status: targetStatus as any, 
+        publishedAt: isVerified ? new Date() : null 
+      },
       include: {
         media: true,
         hmoRooms: true,

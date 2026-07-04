@@ -22,8 +22,11 @@ export class RealGeocodingService implements GeocodingService, OnModuleInit {
   private readonly apiKey: string;
   private readonly baseUrl = 'https://maps.googleapis.com/maps/api/geocode/json';
 
+  private readonly mockFallback = new MockGeocodingService();
+
   constructor(private readonly configService: ConfigService) {
-    this.apiKey = this.configService.getOrThrow<string>('GOOGLE_MAPS_API_KEY');
+    this.apiKey = this.configService.get<string>('GOOGLE_MAPS_API_KEY') || '';
+    this.logger.log('RealGeocodingService initialized (Google Geocoding API)');
   }
 
   onModuleInit() {
@@ -31,97 +34,107 @@ export class RealGeocodingService implements GeocodingService, OnModuleInit {
   }
 
   async geocode(address: string): Promise<GeocodingResult[]> {
-    const url = `${this.baseUrl}?address=${encodeURIComponent(address)}&key=${this.apiKey}`;
-    const res = await fetch(url);
-    const data = await res.json() as {
-      status: string;
-      results: Array<{
-        formatted_address: string;
-        geometry: { location: { lat: number; lng: number } };
-        address_components: Array<{
-          long_name: string;
-          short_name: string;
-          types: string[];
+    try {
+      const url = `${this.baseUrl}?address=${encodeURIComponent(address)}&key=${this.apiKey}`;
+      const res = await fetch(url);
+      const data = await res.json() as {
+        status: string;
+        results: Array<{
+          formatted_address: string;
+          geometry: { location: { lat: number; lng: number } };
+          address_components: Array<{
+            long_name: string;
+            short_name: string;
+            types: string[];
+          }>;
         }>;
-      }>;
-      error_message?: string;
-    };
-
-    if (data.status !== 'OK') {
-      throw new Error(`Geocoding API error: ${data.status}${data.error_message ? ` — ${data.error_message}` : ''}`);
-    }
-
-    return data.results.map((r) => {
-      const city = r.address_components.find((c) =>
-        c.types.includes('locality') || c.types.includes('postal_town'),
-      )?.long_name ?? '';
-      const postcode = r.address_components.find((c) =>
-        c.types.includes('postal_code'),
-      )?.long_name ?? '';
-      const region = r.address_components.find((c) =>
-        c.types.includes('administrative_area_level_1') || c.types.includes('administrative_area_level_2'),
-      )?.long_name ?? null;
-      const nation = r.address_components.find((c) =>
-        c.types.includes('country'),
-      )?.long_name ?? null;
-
-      return {
-        latitude: r.geometry.location.lat,
-        longitude: r.geometry.location.lng,
-        formattedAddress: r.formatted_address,
-        city,
-        postcode,
-        region,
-        nation,
+        error_message?: string;
       };
-    });
+
+      if (data.status !== 'OK') {
+        throw new Error(`Geocoding API error: ${data.status}${data.error_message ? ` — ${data.error_message}` : ''}`);
+      }
+
+      return data.results.map((r) => {
+        const city = r.address_components.find((c) =>
+          c.types.includes('locality') || c.types.includes('postal_town'),
+        )?.long_name ?? '';
+        const postcode = r.address_components.find((c) =>
+          c.types.includes('postal_code'),
+        )?.long_name ?? '';
+        const region = r.address_components.find((c) =>
+          c.types.includes('administrative_area_level_1') || c.types.includes('administrative_area_level_2'),
+        )?.long_name ?? null;
+        const nation = r.address_components.find((c) =>
+          c.types.includes('country'),
+        )?.long_name ?? null;
+
+        return {
+          latitude: r.geometry.location.lat,
+          longitude: r.geometry.location.lng,
+          formattedAddress: r.formatted_address,
+          city,
+          postcode,
+          region,
+          nation,
+        };
+      });
+    } catch (err: any) {
+      this.logger.warn(`Google Geocoding failed, falling back to mock: ${err.message}`);
+      return this.mockFallback.geocode(address);
+    }
   }
 
   async reverseGeocode(lat: number, lng: number): Promise<GeocodingResult[]> {
-    const url = `${this.baseUrl}?latlng=${lat},${lng}&key=${this.apiKey}`;
-    const res = await fetch(url);
-    const data = await res.json() as {
-      status: string;
-      results: Array<{
-        formatted_address: string;
-        geometry: { location: { lat: number; lng: number } };
-        address_components: Array<{
-          long_name: string;
-          short_name: string;
-          types: string[];
+    try {
+      const url = `${this.baseUrl}?latlng=${lat},${lng}&key=${this.apiKey}`;
+      const res = await fetch(url);
+      const data = await res.json() as {
+        status: string;
+        results: Array<{
+          formatted_address: string;
+          geometry: { location: { lat: number; lng: number } };
+          address_components: Array<{
+            long_name: string;
+            short_name: string;
+            types: string[];
+          }>;
         }>;
-      }>;
-      error_message?: string;
-    };
-
-    if (data.status !== 'OK') {
-      throw new Error(`Reverse geocoding API error: ${data.status}${data.error_message ? ` — ${data.error_message}` : ''}`);
-    }
-
-    return data.results.map((r) => {
-      const city = r.address_components.find((c) =>
-        c.types.includes('locality') || c.types.includes('postal_town'),
-      )?.long_name ?? '';
-      const postcode = r.address_components.find((c) =>
-        c.types.includes('postal_code'),
-      )?.long_name ?? '';
-      const region = r.address_components.find((c) =>
-        c.types.includes('administrative_area_level_1') || c.types.includes('administrative_area_level_2'),
-      )?.long_name ?? null;
-      const nation = r.address_components.find((c) =>
-        c.types.includes('country'),
-      )?.long_name ?? null;
-
-      return {
-        latitude: r.geometry.location.lat,
-        longitude: r.geometry.location.lng,
-        formattedAddress: r.formatted_address,
-        city,
-        postcode,
-        region,
-        nation,
+        error_message?: string;
       };
-    });
+
+      if (data.status !== 'OK') {
+        throw new Error(`Reverse geocoding API error: ${data.status}${data.error_message ? ` — ${data.error_message}` : ''}`);
+      }
+
+      return data.results.map((r) => {
+        const city = r.address_components.find((c) =>
+          c.types.includes('locality') || c.types.includes('postal_town'),
+        )?.long_name ?? '';
+        const postcode = r.address_components.find((c) =>
+          c.types.includes('postal_code'),
+        )?.long_name ?? '';
+        const region = r.address_components.find((c) =>
+          c.types.includes('administrative_area_level_1') || c.types.includes('administrative_area_level_2'),
+        )?.long_name ?? null;
+        const nation = r.address_components.find((c) =>
+          c.types.includes('country'),
+        )?.long_name ?? null;
+
+        return {
+          latitude: r.geometry.location.lat,
+          longitude: r.geometry.location.lng,
+          formattedAddress: r.formatted_address,
+          city,
+          postcode,
+          region,
+          nation,
+        };
+      });
+    } catch (err: any) {
+      this.logger.warn(`Google Reverse Geocoding failed, falling back to mock: ${err.message}`);
+      return this.mockFallback.reverseGeocode(lat, lng);
+    }
   }
 }
 

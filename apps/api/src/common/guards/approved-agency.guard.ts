@@ -45,9 +45,9 @@ export class ApprovedAgencyGuard implements CanActivate {
       throw new ForbiddenException('Agency profile required');
     }
 
-    if (profile.verificationStatus !== 'APPROVED') {
+    if (profile.verificationStatus === 'REJECTED') {
       throw new ForbiddenException(
-        `Agency is ${profile.verificationStatus}. Only APPROVED agencies can perform this action.`,
+        'Your agency profile has been rejected. You cannot perform this action.',
       );
     }
 

@@ -29,10 +29,6 @@ export class AgencyService {
           contactName: dto.contactName,
           phone: dto.phone,
           website: dto.website || null,
-          verificationStatus: 'PENDING', // Reset on profile update
-          reviewedByAdminId: null,
-          reviewedAt: null,
-          rejectionReason: null,
         },
       });
     }

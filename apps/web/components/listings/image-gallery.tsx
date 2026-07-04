@@ -1,108 +1,99 @@
-'use client';
+"use client"
 
-import { useState } from 'react';
-
-export interface GalleryImage {
-  id: string;
-  url?: string | null;
-  fileKey: string;
-  isPrimary?: boolean;
-  originalName?: string;
-}
+import * as React from "react"
+import { ChevronLeft, ChevronRight, X } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 interface ImageGalleryProps {
-  images: GalleryImage[];
+  images: string[]
+  className?: string
 }
 
-export function ImageGallery({ images }: ImageGalleryProps) {
-  const [selectedIndex, setSelectedIndex] = useState(() => {
-    const primary = images.findIndex((img) => img.isPrimary);
-    return primary >= 0 ? primary : 0;
-  });
-  const current = images[selectedIndex];
+export function ImageGallery({ images, className }: ImageGalleryProps) {
+  const [currentIndex, setCurrentIndex] = React.useState(0)
 
-  if (images.length === 0) {
-    return (
-      <div className="flex h-64 items-center justify-center rounded-xl bg-deep-800 sm:h-80">
-        <div className="text-center text-slate-500">
-          <svg
-            className="mx-auto h-12 w-12"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1}
-              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-            />
-          </svg>
-          <p className="mt-2 text-sm">No images yet</p>
-        </div>
-      </div>
-    );
+  const goToPrevious = () => {
+    setCurrentIndex((prev) => (prev === 0 ? images.length - 1 : prev - 1))
+  }
+
+  const goToNext = () => {
+    setCurrentIndex((prev) => (prev === images.length - 1 ? 0 : prev + 1))
   }
 
   return (
-    <div>
-      {/* Hero image */}
-      <div className="relative flex h-64 items-center justify-center overflow-hidden rounded-xl bg-deep-900 sm:h-80">
-        {current?.url ? (
-          <img
-            src={current.url}
-            alt={current.originalName ?? 'Property image'}
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-slate-500">
-            <div className="text-center">
-              <svg
-                className="mx-auto h-12 w-12"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1}
-                  d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                />
-              </svg>
-              <p className="mt-2 text-xs text-slate-600">Image preview unavailable</p>
-            </div>
-          </div>
-        )}
+    <div className={cn("relative rounded-2xl overflow-hidden bg-[var(--bg-card)]", className)}>
+      {/* Main Image */}
+      <div className="relative aspect-video">
+        <div
+          className="absolute inset-0 bg-gradient-to-br from-[var(--bg-secondary)] to-[var(--bg-card)] flex items-center justify-center"
+          style={{ background: images[currentIndex] }}
+        >
+          <span className="text-[var(--text-faint)] text-lg">Property Image {currentIndex + 1}</span>
+        </div>
+
+        {/* Prev/Next Arrows */}
         {images.length > 1 && (
-          <span className="absolute right-3 top-3 rounded-full bg-black/60 px-2 py-0.5 text-xs text-white">
-            {selectedIndex + 1}/{images.length}
-          </span>
+          <>
+            <button
+              onClick={goToPrevious}
+              className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+              aria-label="Previous image"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button
+              onClick={goToNext}
+              className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+              aria-label="Next image"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </>
+        )}
+
+        {/* Image counter */}
+        {images.length > 1 && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2">
+            {images.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setCurrentIndex(i)}
+                className={cn(
+                  "w-2 h-2 rounded-full transition-all",
+                  i === currentIndex
+                    ? "bg-white w-6"
+                    : "bg-white/50 hover:bg-white"
+                )}
+                aria-label={`Go to image ${i + 1}`}
+              />
+            ))}
+          </div>
         )}
       </div>
 
       {/* Thumbnails */}
       {images.length > 1 && (
-        <div className="mt-3 flex gap-2 overflow-x-auto">
-          {images.map((img, i) => (
+        <div className="flex gap-2 p-4 overflow-x-auto">
+          {images.map((image, i) => (
             <button
-              key={img.id}
-              onClick={() => setSelectedIndex(i)}
-              className={`shrink-0 overflow-hidden rounded-lg border-2 transition ${
-                i === selectedIndex
-                  ? 'border-gold-500 ring-1 ring-gold-500/50'
-                  : 'border-transparent opacity-70 hover:opacity-100'
-              }`}
+              key={i}
+              onClick={() => setCurrentIndex(i)}
+              className={cn(
+                "relative flex-shrink-0 w-20 h-14 rounded-lg overflow-hidden border-2 transition-all",
+                i === currentIndex
+                  ? "border-[var(--accent)]"
+                  : "border-transparent hover:border-[var(--border)]"
+              )}
+              aria-label={`View image ${i + 1}`}
+              aria-current={i === currentIndex ? "true" : "false"}
             >
-              {img.url ? (
-                <img
-                  src={img.url}
-                  alt={`Thumbnail ${i + 1}`}
-                  className="h-16 w-20 object-cover sm:h-20 sm:w-24"
-                />
-              ) : (
-                <div className="flex h-16 w-20 items-center justify-center bg-deep-700 text-xs text-slate-500 sm:h-20 sm:w-24">
-                  #{i + 1}
+              <div
+                className="absolute inset-0 bg-gradient-to-br from-[var(--bg-secondary)] to-[var(--bg-card)]"
+                style={{ background: image }}
+              />
+              {i === currentIndex && (
+                <div className="absolute inset-0 bg-[var(--accent)]/20 flex items-center justify-center">
+                  <X className="w-4 h-4 text-white" />
                 </div>
               )}
             </button>
@@ -110,5 +101,5 @@ export function ImageGallery({ images }: ImageGalleryProps) {
         </div>
       )}
     </div>
-  );
+  )
 }

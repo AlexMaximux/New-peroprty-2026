@@ -1,6 +1,19 @@
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
 
-/** Refresh access token using refresh token */
+/** Clear all auth tokens and redirect to /login. */
+function forceLogout() {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem('pv_access_token');
+  localStorage.removeItem('pv_refresh_token');
+  document.cookie = 'pv_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+  window.location.href = '/login';
+}
+
+/**
+ * Refresh the access token using the stored refresh token.
+ * Returns the new token pair on success, or null on failure.
+ * Safe to call from anywhere; reads the latest refresh token from storage.
+ */
 export async function refreshAccessToken(): Promise<{ accessToken: string; refreshToken: string } | null> {
   const refreshToken = typeof window !== 'undefined' ? localStorage.getItem('pv_refresh_token') : null;
   if (!refreshToken) return null;
@@ -15,10 +28,31 @@ export async function refreshAccessToken(): Promise<{ accessToken: string; refre
     const data = await res.json();
     localStorage.setItem('pv_access_token', data.accessToken);
     if (data.refreshToken) localStorage.setItem('pv_refresh_token', data.refreshToken);
+    // Keep the cookie in sync with the new access token (used by middleware/SSR)
+    const ttlSeconds = 30 * 24 * 60 * 60;
+    document.cookie = `pv_access_token=${data.accessToken}; path=/; max-age=${ttlSeconds}; SameSite=Lax`;
     return data;
   } catch {
     return null;
   }
+}
+
+// ── Single-flight refresh ──────────────────────────────────────────────────
+// When many API calls hit 401 at once (e.g. a dashboard loading), we only want
+// ONE refresh request in flight. All callers await the same promise.
+let refreshInFlight: Promise<boolean> | null = null;
+
+function getOrStartRefresh(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      const result = await refreshAccessToken();
+      return result !== null;
+    })().finally(() => {
+      // Clear the single-flight lock so future 401s can trigger another refresh
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
 }
 
 function authHeaders(): Record<string, string> {
@@ -30,20 +64,169 @@ function authHeaders(): Record<string, string> {
   return headers;
 }
 
+/**
+ * Main API fetch wrapper.
+ *
+ * On a 401, it transparently attempts ONE token refresh, then retries the
+ * original request. Only if the refresh fails (or there's no refresh token)
+ * does it force a logout. This keeps users logged in across the 15-minute
+ * access-token boundary as long as their 7-day refresh token is valid.
+ */
 export async function apiFetch<T = unknown>(
   path: string,
   options?: { method?: string; body?: unknown },
 ): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
-    method: options?.method ?? 'GET',
-    headers: authHeaders(),
-    body: options?.body ? JSON.stringify(options.body) : undefined,
-  });
+  const method = options?.method ?? 'GET';
+  const body = options?.body ? JSON.stringify(options.body) : undefined;
+
+  const doFetch = () =>
+    fetch(`${API}${path}`, {
+      method,
+      headers: authHeaders(),
+      body,
+    });
+
+  let res = await doFetch();
+
+  // If unauthorized, try to refresh the token once and retry
+  if (res.status === 401) {
+    const refreshed = await getOrStartRefresh();
+    if (refreshed) {
+      // Retry the original request with the fresh token
+      res = await doFetch();
+    }
+  }
+
+  // Still unauthorized after refresh attempt → genuine expiry
+  if (res.status === 401) {
+    forceLogout();
+    throw new Error('Unauthorized');
+  }
+
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.message ?? `API error: ${res.status}`);
   }
   return data as T;
+}
+
+// ── Auth & Agency helpers ──────────────────────────────────────────────────
+// These consolidate what several components were doing with raw fetch() calls,
+// so they all benefit from the automatic token refresh above.
+
+export interface AgencyProfile {
+  id: string;
+  userId: string;
+  companyName: string;
+  companyNumber: string | null;
+  address: string;
+  contactName: string;
+  phone: string;
+  website: string | null;
+  verificationStatus: string;
+  documents?: { id: string; type: string; originalName: string; createdAt: string }[];
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  role: string;
+  displayName: string;
+  phone: string | null;
+  status: string;
+  createdAt: string;
+}
+
+export function getMe(): Promise<AuthUser> {
+  return apiFetch<AuthUser>('/auth/me');
+}
+
+export function changePassword(currentPassword: string, newPassword: string): Promise<{ message: string }> {
+  return apiFetch<{ message: string }>('/auth/change-password', {
+    method: 'POST',
+    body: { currentPassword, newPassword },
+  });
+}
+
+export function getAgencyProfile(): Promise<AgencyProfile> {
+  return apiFetch<AgencyProfile>('/agency/profile');
+}
+
+export function updateAgencyProfile(body: {
+  companyName?: string;
+  companyNumber?: string;
+  address?: string;
+  contactName?: string;
+  phone?: string;
+  website?: string;
+}): Promise<AgencyProfile> {
+  return apiFetch<AgencyProfile>('/agency/profile', { method: 'POST', body });
+}
+
+export interface PresignDocResult { uploadUrl: string; fileKey: string }
+export function presignAgencyDocument(body: {
+  type: string;
+  originalName: string;
+  contentType: string;
+}): Promise<PresignDocResult> {
+  return apiFetch<PresignDocResult>('/agency/documents/upload-url', { method: 'POST', body });
+}
+
+export function confirmAgencyDocument(body: {
+  fileKey: string;
+  originalName: string;
+  type: string;
+}): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>('/agency/documents/confirm', { method: 'POST', body });
+}
+
+/**
+ * Full agency document upload flow: presign → PUT to storage → confirm.
+ * (The PUT to the presigned URL goes directly to S3/MinIO and does NOT use
+ * apiFetch, which is correct — it's not our API.)
+ */
+export async function uploadAgencyDocument(
+  file: File,
+  type: string,
+): Promise<{ id: string; fileKey: string }> {
+  const { uploadUrl, fileKey } = await presignAgencyDocument({
+    type,
+    originalName: file.name,
+    contentType: file.type,
+  });
+  const putRes = await fetch(uploadUrl, {
+    method: 'PUT',
+    body: file,
+    headers: { 'Content-Type': file.type },
+  });
+  if (!putRes.ok) {
+    throw new Error(`Document upload failed: HTTP ${putRes.status}`);
+  }
+  const result = await confirmAgencyDocument({ fileKey, originalName: file.name, type });
+  return { id: result.id, fileKey };
+}
+
+/** Create a new listing (owner-only). */
+export async function createListing(body: Record<string, unknown>): Promise<ListingDetail> {
+  return apiFetch<ListingDetail>('/listings', {
+    method: 'POST',
+    body,
+  });
+}
+
+/** Publish a draft listing (owner-only). */
+export async function publishListing(id: string): Promise<ListingDetail> {
+  return apiFetch<ListingDetail>(`/listings/${id}/publish`, {
+    method: 'POST',
+  });
+}
+
+export interface GeocodeResult {
+  results: { latitude: number; longitude: number; region?: string }[];
+}
+
+export async function geocodeAddress(address: string): Promise<GeocodeResult> {
+  return apiFetch<GeocodeResult>(`/integrations/geocode?address=${encodeURIComponent(address)}`);
 }
 
 // ── Typed helpers ──
@@ -56,16 +239,26 @@ export interface ListingSearchResult {
   strategy: string | null;
   status: string;
   propertyType: string | null;
+  addressLine1: string;
   postcode: string;
   city: string;
   region: string | null;
   bedrooms: number | null;
   bathrooms: number | null;
+  floorArea: number | null;
   askingPricePence: number | null;
+  marketValuePence: number | null;
+  nearbyPlaces?: any[] | null;
   estimatedRoi: number | null;
+  isLicensed: boolean | null;
   needsRefurb: boolean | null;
   isVacant: boolean | null;
   isTenanted: boolean | null;
+  hasGarden: boolean | null;
+  parking: string | null;
+  furnishedStatus: string | null;
+  strategySpecificData: Record<string, unknown> | null;
+  refurbCostPence: number | null;
   publishedAt: string | null;
   createdAt: string;
   media: { id: string; kind: string; fileKey: string; order: number; url?: string | null }[];
@@ -74,6 +267,7 @@ export interface ListingSearchResult {
   agencyProfile: {
     companyName: string;
     contactName: string;
+    verificationStatus: string;
     user: { displayName: string };
   } | null;
   _count: { favourites: number };
@@ -159,6 +353,7 @@ export interface ListingDetail {
   media: { id: string; kind: string; fileKey: string; originalName: string; mimeType?: string; isPrimary?: boolean; order: number; url?: string | null }[];
   hmoRooms: { id: string; name: string; roomType: string; monthlyRentPence: number }[];
   portfolioAssets: { id: string; name: string; valuePence: number | null; notes: string | null }[];
+  nearbyPlaces?: any[] | null;
   agencyProfile: {
     companyName: string;
     contactName: string;
