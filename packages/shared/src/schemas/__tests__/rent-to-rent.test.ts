@@ -350,6 +350,26 @@ describe('saDetailsSectionSchema', () => {
     });
     expect(result.furnished).toBe(false);
   });
+
+  // ── AirDNA occupancy round-trip ───────────────────────────────────────────────
+  it('accepts AirDNA occupancy as percentage 0-100', () => {
+    const result = saDetailsSectionSchema.parse({
+      bedrooms: 2,
+      bathrooms: 1,
+      accommodates: 4,
+      furnished: true,
+      furnishingQuality: 'GOOD',
+      manualOverride: false,
+      airdnaOccupancyRate: 70,
+    });
+    expect(result.airdnaOccupancyRate).toBe(70);
+  });
+
+  it('rejects AirDNA occupancy > 100 (percentage)', () => {
+    expect(() =>
+      saDetailsSectionSchema.parse({ bedrooms: 2, bathrooms: 1, accommodates: 4, furnished: true, manualOverride: false, airdnaOccupancyRate: 101 }),
+    ).toThrow();
+  });
 });
 
 // ── SA Revenue section ───────────────────────────────────────────────────────

@@ -1,5 +1,26 @@
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
 
+/** Refresh access token using refresh token */
+export async function refreshAccessToken(): Promise<{ accessToken: string; refreshToken: string } | null> {
+  const refreshToken = typeof window !== 'undefined' ? localStorage.getItem('pv_refresh_token') : null;
+  if (!refreshToken) return null;
+
+  try {
+    const res = await fetch(`${API}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    localStorage.setItem('pv_access_token', data.accessToken);
+    if (data.refreshToken) localStorage.setItem('pv_refresh_token', data.refreshToken);
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (typeof window !== 'undefined') {

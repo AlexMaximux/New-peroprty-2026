@@ -82,8 +82,11 @@ export default function SaSummarySection({ saDetails, rentTerm, saRevenue, onCon
           {rentTerm.managementEnabled && <div className="flex justify-between"><span className="text-slate-400">− Management ({rentTerm.managementRatePercent}%)</span><span>{formatGBP(Math.round(rentTerm.rentToLandlordPence * (rentTerm.managementRatePercent / 100)))}</span></div>}
           {rentTerm.cleaningPence > 0 && <div className="flex justify-between"><span className="text-slate-400">− Cleaning</span><span>{formatGBP(rentTerm.cleaningPence)}</span></div>}
           <div className="flex justify-between"><span className="text-slate-400">− Other Costs</span><span>{formatGBP(saRevenue.otherCostsPence)}</span></div>
+          {rentTerm.finderFeePence > 0 && (
+            <div className="flex justify-between"><span className="text-slate-400">− Finder Fee ÷ 12</span><span>{formatGBP(summary.finderMonthlyAmortisedPence)}</span></div>
+          )}
           <div className="flex justify-between font-medium pt-2 border-t border-deep-600">
-            <span>Total Monthly Costs</span>
+            <span>Ongoing Monthly Costs</span>
             <span>{formatGBP(summary.totalMonthlyCostsPence)}</span>
           </div>
         </div>
@@ -94,20 +97,20 @@ export default function SaSummarySection({ saDetails, rentTerm, saRevenue, onCon
         <p className="text-xs text-slate-400 uppercase tracking-wider mb-3">Profit</p>
         <div className="space-y-2">
           <div className="flex justify-between items-center">
-            <span className="text-sm font-medium">Monthly Profit</span>
-            <span className={cn('text-lg font-semibold', summary.monthlyProfitPence >= 0 ? 'text-emerald-400' : 'text-red-400')}>
-              {formatGBP(summary.monthlyProfitPence)}
+            <span className="text-sm font-medium">Monthly Profit (Year 1)</span>
+            <span className={cn('text-lg font-semibold', summary.year1MonthlyProfitPence >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+              {formatGBP(summary.year1MonthlyProfitPence)}
             </span>
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-slate-400">Yearly Profit</span>
-            <span className={summary.yearlyProfitPence >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-              {formatGBP(summary.yearlyProfitPence)}
+            <span className="text-slate-400">Year-1 Annual Profit</span>
+            <span className={summary.year1AnnualProfitPence >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+              {formatGBP(summary.year1AnnualProfitPence)}
             </span>
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-slate-400">Break-even Occupancy</span>
-            <span>{formatPercent(summary.breakEvenOccupancy)}</span>
+            <span className="text-slate-400">Ongoing Annual Profit (Year 2+)</span>
+            <span className="text-emerald-400">{formatGBP(summary.ongoingAnnualProfitPence)}</span>
           </div>
         </div>
       </div>
@@ -116,14 +119,12 @@ export default function SaSummarySection({ saDetails, rentTerm, saRevenue, onCon
       <div className="glass-card p-4">
         <p className="text-xs text-slate-400 uppercase tracking-wider mb-3">Return on Investment</p>
         <div className="space-y-2">
-          {rentTerm.finderFeePence > 0 && (
-            <div className="flex items-baseline justify-between">
-              <span className="text-sm text-slate-400">Year-1 ROI</span>
-              <span className="text-lg font-bold gradient-text">{formatPercent(summary.year1Roi)}</span>
-            </div>
-          )}
           <div className="flex items-baseline justify-between">
-            <span className="text-sm text-slate-400">Ongoing ROI</span>
+            <span className="text-sm text-slate-400">Year-1 ROI</span>
+            <span className="text-lg font-bold gradient-text">{formatPercent(summary.year1Roi)}</span>
+          </div>
+          <div className="flex items-baseline justify-between">
+            <span className="text-sm text-slate-400">Ongoing ROI (Year 2+)</span>
             <span className="text-lg font-bold gradient-text">{formatPercent(summary.ongoingRoi)}</span>
           </div>
         </div>

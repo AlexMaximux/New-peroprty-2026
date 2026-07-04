@@ -66,12 +66,25 @@ export const WIZARD_REGISTERED_SECTIONS: SectionId[] = [
 ];
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
-function authHeaders(): Record<string, string> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('pv_access_token') : null;
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
+
+/** Refresh access token using refresh token - shared logic */
+async function refreshAccessToken(): Promise<{ accessToken: string; refreshToken: string } | null> {
+  const refreshToken = typeof window !== 'undefined' ? localStorage.getItem('pv_refresh_token') : null;
+  if (!refreshToken) return null;
+  try {
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    localStorage.setItem('pv_access_token', data.accessToken);
+    if (data.refreshToken) localStorage.setItem('pv_refresh_token', data.refreshToken);
+    return data;
+  } catch {
+    return null;
+  }
 }
 
 // ── Rendertown ────────────────────────────────────────────────────────────
@@ -687,14 +700,39 @@ export default function RentToRentWizard({ onDraftSaved }: Props) {
   }, [path, sectionData, stagedPhotosRef, onDraftSaved, router]);
 
   const submitListing = async (payload: Record<string, unknown>, photos: StagedPhoto[]) => {
-    // POST to API
-    const res = await fetch(`${API_BASE}/listings`, {
+    let token = typeof window !== 'undefined' ? localStorage.getItem('pv_access_token') : null;
+
+    // First attempt
+    let res = await fetch(`${API_BASE}/listings`, {
       method: 'POST',
-      headers: authHeaders(),
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(payload),
     });
 
+    // On 401, try refresh once
+    if (res.status === 401) {
+      const refreshed = await refreshAccessToken();
+      if (refreshed?.accessToken) {
+        token = refreshed.accessToken;
+        res = await fetch(`${API_BASE}/listings`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(payload),
+        });
+      }
+    }
+
     if (!res.ok) {
+      // Friendly error on auth failure
+      if (res.status === 401) {
+        throw new Error('Session expired — please log in again');
+      }
       const err = await res.json().catch(() => ({ message: 'Save failed' }));
       throw new Error(err.message ?? err.details ?? 'Save failed');
     }

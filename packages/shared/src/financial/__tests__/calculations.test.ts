@@ -936,14 +936,23 @@ describe('calcSaSummary', () => {
     expect(result.totalMonthlyCostsPence).toBe(229750);
   });
 
-  // Profit = 195000 - 229750 = -34750
-  it('computes monthly profit', () => {
-    expect(result.monthlyProfitPence).toBe(-34750);
+  // Ongoing costs = 120000 + 30000 + 20000 + 9750 (5% of 195000) + 25000 + 15000 + 10000 = 229750
+  it('computes ongoing monthly profit (no finder fee)', () => {
+    // Profit = 195000 - 229750 = -34750 (ongoing)
+    expect(result.ongoingMonthlyProfitPence).toBe(-34750);
   });
 
-  // Yearly profit = -34750 * 12 = -417000
-  it('computes yearly profit', () => {
-    expect(result.yearlyProfitPence).toBe(-417000);
+  // Ongoing annual = -34750 * 12 = -417000
+  it('computes ongoing annual profit', () => {
+    expect(result.ongoingAnnualProfitPence).toBe(-417000);
+  });
+
+  // Year-1 costs = ongoing 229750 + sourcing 8333 = 238083
+  // Year-1 monthly profit = 195000 - 238083 = -43083
+  // Year-1 annual = -43083 * 12 = -516996
+  it('computes Year-1 profit (finder fee amortised)', () => {
+    expect(result.year1MonthlyProfitPence).toBe(-43083);
+    expect(result.year1AnnualProfitPence).toBe(-516996);
   });
 
   // Break-even = 229750 / (10000 × 30) = 0.7658...
@@ -956,9 +965,10 @@ describe('calcSaSummary', () => {
     expect(result.moneyNeededInPence).toBe(470000);
   });
 
-  // Year-1 annual = yearly profit (−417000) − finder (100000) = −517000
-  // Ongoing ROI = −417000 / 470000 = −0.8872...
-  it('computes ongoing ROI', () => {
+  // Year-1 ROI = -516996 / 470000 = -1.09999...
+  // Ongoing ROI = -417000 / 470000 = -0.8872...
+  it('computes ROIs correctly', () => {
+    expect(result.year1Roi).toBeCloseTo(-1.1, 1);
     expect(result.ongoingRoi).toBeCloseTo(-0.8872, 3);
   });
 
@@ -981,12 +991,15 @@ describe('calcSaSummary', () => {
     });
     expect(r.monthlyIncomePence).toBe(0);
     expect(r.totalMonthlyCostsPence).toBe(0);
-    expect(r.monthlyProfitPence).toBe(0);
+    expect(r.ongoingMonthlyProfitPence).toBe(0);
+    expect(r.ongoingAnnualProfitPence).toBe(0);
+    expect(r.year1MonthlyProfitPence).toBe(0);
+    expect(r.year1AnnualProfitPence).toBe(0);
     expect(r.breakEvenOccupancy).toBe(0);
     expect(r.moneyNeededInPence).toBe(0);
   });
 
-  it('handles highly profitable scenario with 0 costs', () => {
+  it('handles highly profitable scenario with 0 costs (no finder fee)', () => {
     const r = calcSaSummary({
       nightlyRatePence: 20000,
       occupancyRate: 0.80,
@@ -1001,15 +1014,50 @@ describe('calcSaSummary', () => {
     });
     // Income = 0.80 × 20000 × 30 = 480000
     // Maintenance = 0.05 × 480000 = 24000
-    // Total costs = 24000 (only maintenance)
     expect(r.monthlyIncomePence).toBe(480000);
     expect(r.totalMonthlyCostsPence).toBe(24000);
-    expect(r.monthlyProfitPence).toBe(456000);
+    expect(r.ongoingMonthlyProfitPence).toBe(456000);
+    expect(r.year1MonthlyProfitPence).toBe(456000); // No finder fee, same as ongoing
     expect(r.breakEvenOccupancy).toBe(0.04); // 24000 / (20000 × 30)
-    // Money-in = deposit £5,000
     expect(r.moneyNeededInPence).toBe(500000);
-    // Ongoing ROI = 5472000 / 500000 = 10.944
     expect(r.ongoingRoi).toBeCloseTo(10.944, 2);
+    expect(r.year1Roi).toBeCloseTo(10.944, 2); // No finder fee, same as ongoing
+  });
+
+  // ── SA dual-year scenario (finder fee amortised) ───────────────────────────────
+  it('SA dual-year: £100/night, 75% occupancy, finder £1.2k, deposit £2k, landlord £1.5k → Year-1 profit lower', () => {
+    const r = calcSaSummary({
+      nightlyRatePence: 10000,
+      occupancyRate: 0.75,
+      rentToLandlordPence: 150000,
+      billsTotalPence: 30000,
+      bookingFeePence: 20000,
+      maintenanceRate: 0.05,
+      managementCostPence: 20000,
+      cleaningPence: 10000,
+      otherCostsPence: 5000,
+      depositPence: 200000,
+      finderFeePence: 120000, // £1,200 finder fee
+      legalFeesPence: 0,
+    });
+    // Income = 0.75 × 10000 × 30 = 225000
+    expect(r.monthlyIncomePence).toBe(225000);
+    // Ongoing costs = 150000 + 30000 + 20000 + 11250 + 20000 + 10000 + 5000 = 246250
+    expect(r.totalMonthlyCostsPence).toBe(246250);
+    // Ongoing monthly profit = 225000 - 246250 = -21250 (loss)
+    expect(r.ongoingMonthlyProfitPence).toBe(-21250);
+    expect(r.ongoingAnnualProfitPence).toBe(-255000);
+    // Sourcing per month = 120000 / 12 = 10000
+    expect(r.finderMonthlyAmortisedPence).toBe(10000);
+    // Year-1 costs = 246250 + 10000 = 256250
+    // Year-1 monthly = 225000 - 256250 = -31250
+    expect(r.year1MonthlyProfitPence).toBe(-31250);
+    expect(r.year1AnnualProfitPence).toBe(-375000);
+    // Money-in = 200000 + 150000 + 120000 = 470000
+    expect(r.moneyNeededInPence).toBe(470000);
+    // ROIs
+    expect(r.year1Roi).toBeCloseTo(-0.798, 3); // -375000 / 470000
+    expect(r.ongoingRoi).toBeCloseTo(-0.5426, 3); // -255000 / 470000
   });
 });
 

@@ -168,9 +168,10 @@ export const saDetailsSectionSchema = z.object({
   furnishingQuality: furnishingQualitySchema.nullish(),
   furnishingQualityOther: z.string().max(200).nullish(),
   manualOverride: z.boolean().default(false),
-  // AirDNA mock input (stored but not used in calc until real API wired)
+  // AirDNA mock input (stored as decimal 0-1, but form accepts 0-100%)
+  // Note: nightlyRate is pence, occupancyRate is percentage for form validation
   airdnaNightlyRatePence: z.number().int().nonnegative().nullish(),
-  airdnaOccupancyRate: z.number().min(0).max(1).nullish(),
+  airdnaOccupancyRate: z.number().int().min(0).max(100).nullish(),
 }).refine(
   (d) => !d.furnished || d.furnishingQuality != null,
   { message: 'Furnishing quality required when furnished', path: ['furnishingQuality'] },
