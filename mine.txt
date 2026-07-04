@@ -1,0 +1,4 @@
+Is MinIO running? In a terminal:
+  curl http://localhost:9000   (should respond, not "connection refused")
+If refused, start it:
+  minio server ~/minio-data --console-address :9001
